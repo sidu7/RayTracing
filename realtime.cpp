@@ -462,9 +462,8 @@ std::uniform_real_distribution<> myrandom(0.0, 1.0);
 
 void Realtime::DrawOutput()
 {
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
+	
+//#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
 	for (int y = 0; y < height; y++) {
 
 		fprintf(stderr, "Rendering %4d\r", y);
@@ -478,28 +477,31 @@ void Realtime::DrawOutput()
 				color = Color(1.0, 1.0, 1.0);
 			imagePointer[y * width + x] = color;
 		}
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		raytraceout.Use();
+
+		glGenTextures(1, &imageTexture);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, imageTexture);
+
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+
+		glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
+		glGenerateMipmap(GL_TEXTURE_2D);
+
+		int loc = glGetUniformLocation(raytraceout.program, "imageTex");
+		glUniform1i(loc, 1);
+
+		DrawFSQ();
+		raytraceout.Unuse();
+		glutSwapBuffers();
 	}
 	fprintf(stderr, "\n");
 
-	raytraceout.Use();
-	
-	glGenTextures(1, &imageTexture);
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, imageTexture);
-
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
-
-	glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
-	glGenerateMipmap(GL_TEXTURE_2D);
-
-	int loc = glGetUniformLocation(raytraceout.program, "imageTex");
-	glUniform1i(loc, 1);
-	
-	DrawFSQ();
-	glutSwapBuffers();
 }
 
 void Realtime::DrawFSQ()
