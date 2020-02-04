@@ -33,15 +33,17 @@ public:
 ////////////////////////////////////////////////////////////////////////
 // Obj: encapsulates objects to be drawn; uses OpenGL's VAOs
 ////////////////////////////////////////////////////////////////////////
+
 class Obj
 {
 public:
     MeshData* meshdata;
     Matrix4f modelTR;
     Material* material;
+	Shape* shape;
     Vector3f center;
     unsigned int vao;
-    Obj(MeshData* m, const Matrix4f& tr, Material* b);
+    Obj(MeshData* m, const Matrix4f& tr, Material* b, Shape* s);
     void draw();
     Vector3f Center() { return center; }
 };

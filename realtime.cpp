@@ -10,6 +10,7 @@
 #include "geom.h"
 #include "raytrace.h"
 #include "realtime.h"
+#include "shapes.h"
 
 // Stupid C++ needs callbacks to be static functions.
 static Realtime* globalRealtime = nullptr;
@@ -249,8 +250,8 @@ void applyLight(Material* mat, const unsigned int program)
 ////////////////////////////////////////////////////////////////////////
 // Obj: encapsulates objects to be drawn; uses OpenGL's VAOs
 ////////////////////////////////////////////////////////////////////////
-Obj::Obj(MeshData* m, const Matrix4f& tr, Material* b)
-    : meshdata(m), modelTR(tr), material(b)
+Obj::Obj(MeshData* m, const Matrix4f& tr, Material* b, Shape* s)
+    : meshdata(m), modelTR(tr), material(b), shape(s)
 {
     Vector4f sum(0,0,0,0);
     //for (int i=0;  i<meshdata->vertices.size();  i++)
@@ -468,13 +469,18 @@ void Realtime::DrawOutput()
 
 		fprintf(stderr, "Rendering %4d\r", y);
 		for (int x = 0; x < width; x++) {
-			Color color;
+
+			float dx = 2 * (x + 0.5f) / width - 1;
+			float dy = 2 * (y + 0.5f) / height - 1;
+
+
+			/*Color color;
 			if ((x - width / 2) * (x - width / 2) + (y - height / 2) * (y - height / 2) < 100 * 100)
 				color = Color(myrandom(RNGen), myrandom(RNGen), myrandom(RNGen));
 			else if (abs(x - width / 2) < 4 || abs(y - height / 2) < 4)
 				color = Color(0.0, 1.0, 0.0);
 			else
-				color = Color(1.0, 1.0, 1.0);
+				color = Color(1.0, 1.0, 1.0);*/
 			imagePointer[y * width + x] = color;
 		}
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
