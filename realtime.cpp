@@ -12,6 +12,7 @@
 #include "realtime.h"
 #include "shapes.h"
 
+
 // Stupid C++ needs callbacks to be static functions.
 static Realtime* globalRealtime = nullptr;
 void CBDrawScene()  { globalRealtime->DrawScene(); }
@@ -664,6 +665,7 @@ void Realtime::sphere(const Vector3f center, const float r, Material* mat)
 void Realtime::box(const Vector3f base, const Vector3f diag, Material* mat)
 {
     Matrix4f m = translate(base) * scale(Vector3f(diag[0],diag[1],diag[2]));
+	Box
     Obj* obj = new Obj(boxMesh, m, mat);
     objs.push_back(obj);
     if (mat->isLight())

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "geom.h"
-#include "realtime.h"
 
 class Ray
 {
@@ -17,10 +16,12 @@ public:
 
 class Slab
 {
+public:
 	Vector3f N;		// Normal 
 	float d0, d1;
 };
 
+class Obj;
 class Intersection
 {
 public:
@@ -63,12 +64,20 @@ public:
 class Box : public Shape
 {
 public:
+	Slab slabs[3];
+	
+	Box(Vector3f corner, Vector3f diagonal);	
 	bool Intersect(Ray ray, Intersection& data) override;
 };
 
 class Cylinder : public Shape
 {
 public:
+	Vector3f base;
+	Vector3f axis;
+	float radius;
+	
+	Cylinder(Vector3f b, Vector3f a, float r);
 	bool Intersect(Ray ray, Intersection& data) override;
 };
 
