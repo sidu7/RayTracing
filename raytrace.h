@@ -71,7 +71,7 @@ public:
 ////////////////////////////////////////////////////////////////////////////////
 // Scene
 class Realtime;
-
+typedef Array3f Color;
 class Scene {
 public:
     int width, height;

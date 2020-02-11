@@ -656,7 +656,8 @@ void Realtime::sphere(const Vector3f center, const float r, Material* mat)
 {
     Matrix4f m = translate(center) * scale(Vector3f(r,r,r));
     Vector3f rrr(r,r,r);
-    Obj* obj = new Obj(sphMesh, m, mat);
+	Sphere* sphere = new Sphere(center, r);
+    Obj* obj = new Obj(sphMesh, m, mat, sphere);
     objs.push_back(obj);
     if (mat->isLight())
         lights.push_back(obj);
@@ -665,8 +666,8 @@ void Realtime::sphere(const Vector3f center, const float r, Material* mat)
 void Realtime::box(const Vector3f base, const Vector3f diag, Material* mat)
 {
     Matrix4f m = translate(base) * scale(Vector3f(diag[0],diag[1],diag[2]));
-	Box
-    Obj* obj = new Obj(boxMesh, m, mat);
+	Box* box = new Box(base, diag);
+    Obj* obj = new Obj(boxMesh, m, mat, box);
     objs.push_back(obj);
     if (mat->isLight())
         lights.push_back(obj);
@@ -691,8 +692,18 @@ void Realtime::cylinder(const Vector3f base, const Vector3f axis, const float ra
 
     Matrix4f m = translate(base)*R*scale(Vector3f(radius,radius,axis.norm()));
     Vector3f rrr(radius,radius,radius);
-    Obj* obj = new Obj(cylMesh, m, mat);
+	Cylinder* cylinder = new Cylinder(base,axis,radius);
+    Obj* obj = new Obj(cylMesh, m, mat,cylinder);
     objs.push_back(obj);
     if (mat->isLight())
         lights.push_back(obj);
+}
+
+void Realtime::triangleMesh(MeshData* meshdata)
+{
+	Triangle* triangle = new Triangle(meshdata);
+	Obj* obj = new Obj(meshdata, Matrix4f::Identity(), meshdata->mat, triangle);
+	objs.push_back(obj);
+	if (meshdata->mat->isLight())
+		lights.push_back(obj);
 }

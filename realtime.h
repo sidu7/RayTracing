@@ -118,12 +118,7 @@ public:
     void box(const Vector3f base, const Vector3f diag, Material* mat);
     void cylinder(const Vector3f base, const Vector3f axis, const float radius, Material* mat);
 
-    void triangleMesh(MeshData* meshdata) {
-        Obj* obj = new Obj(meshdata, Matrix4f::Identity(), meshdata->mat);
-        objs.push_back(obj);
-        if (meshdata->mat->isLight())
-            lights.push_back(obj);
-    }
+	void triangleMesh(MeshData* meshdata);
 
     Realtime();
 	void run(Color* image, int pass);

@@ -1,7 +1,8 @@
 #pragma once
 
-#include "geom.h"
+#include <Eigen/StdVector>
 
+using namespace Eigen;
 class Ray
 {
 public:
@@ -58,6 +59,7 @@ public:
 	Vector3f center;
 	float radius;
 
+	Sphere(Vector3f center, float radius);
 	bool Intersect(Ray ray, Intersection& data) override;
 };
 
@@ -81,8 +83,15 @@ public:
 	bool Intersect(Ray ray, Intersection& data) override;
 };
 
+
+struct MeshData;
 class Triangle : public Shape
 {
 public:
+	Vector3f V0, V1, V2;
+	Vector3f N0, N1, N2;
+	Vector2f T0, T1, T2;
+
+	Triangle(MeshData* meshdata);
 	bool Intersect(Ray ray, Intersection& data) override;
 };

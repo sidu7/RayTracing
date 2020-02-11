@@ -1,6 +1,10 @@
 #include "shapes.h"
 #include "raytrace.h"
 
+#include <Eigen/Geometry>
+
+using namespace Eigen;
+
 Interval::Interval() : t0(0.0f), t1(std::numeric_limits<float>::max())
 {
 }
@@ -71,6 +75,10 @@ void Interval::Intersect(Ray ray, Slab slab)
 	}
 }
 
+Sphere::Sphere(Vector3f c, float r) : center(c), radius(r)
+{
+}
+
 bool Sphere::Intersect(Ray ray, Intersection& data)
 {
 	Vector3f Qbar = ray.Q - center;
@@ -110,17 +118,17 @@ bool Sphere::Intersect(Ray ray, Intersection& data)
 
 Box::Box(Vector3f corner, Vector3f diagonal)
 {
-	slabs[1].N = Vector3f(1, 0, 0);
-	slabs[1].d0 = -corner.x;
-	slabs[1].d1 = -corner.x - diagonal.x;
+	slabs[0].N = Vector3f(1, 0, 0);
+	slabs[0].d0 = corner.x();
+	slabs[0].d1 = -corner.x() - diagonal.x();
 
-	slabs[2].N = Vector3f(0, 1, 0);
-	slabs[2].d0 = -corner.y;
-	slabs[2].d1 = -corner.y - diagonal.y;
+	slabs[1].N = Vector3f(0, 1, 0);
+	slabs[1].d0 = -corner.y();
+	slabs[1].d1 = -corner.y() - diagonal.y();
 
-	slabs[3].N = Vector3f(0, 0, 1);
-	slabs[3].d0 = -corner.z;
-	slabs[3].d1 = -corner.z - diagonal.z;
+	slabs[2].N = Vector3f(0, 0, 1);
+	slabs[2].d0 = -corner.z();
+	slabs[2].d1 = -corner.z() - diagonal.z();
 }
 
 bool Box::Intersect(Ray ray, Intersection& data)
@@ -137,7 +145,7 @@ bool Box::Intersect(Ray ray, Intersection& data)
 	}
 	float t;
 	Vector3f normal;
-	if (interval.t0 < interval.t1)
+	if (interval.t0 < interval.t1 && interval.t0 > 0.0f)
 	{
 		t = interval.t0;
 		normal = interval.N0;
@@ -163,12 +171,113 @@ bool Cylinder::Intersect(Ray ray, Intersection& data)
 	Ray newRay;
 	newRay.Q = q._transformVector(ray.Q - base);
 	newRay.D = q._transformVector(ray.D);
-	return false;
+
+	Interval interval;
+	Slab s;
+	s.N = Vector3f(0, 0, 1);
+	s.d0 = 0;
+	s.d1 = - axis.norm();
+	interval.Intersect(newRay, s);
+	float t_minus,t_plus;
+	float a = newRay.D.x() * newRay.D.x() + newRay.D.y() + newRay.D.y();
+	float b = 2 * (newRay.D.x() * newRay.Q.x() + newRay.D.y() * newRay.Q.y());
+	float c = newRay.Q.x() * newRay.Q.x() + newRay.Q.y() * newRay.Q.y() - radius * radius;
+
+	t_plus = (-b + sqrt(b * b - 4 * a * c)) / (2 * a);
+	t_minus = (-b - sqrt(b * b - 4 * a * c)) / (2 * a);
+
+	if (interval.t0 < t_minus)
+	{
+		interval.t0 = t_minus;
+	}
+	if (interval.t1 > t_plus)
+	{
+		interval.t1 = t_plus;
+	}
+
+	if (interval.t0 > interval.t1 || (interval.t0 < 0.0f && interval.t1 < 0.0f))
+	{
+		return false; // No Intersection, The "off the corner" case
+	}
+	float t;
+	Vector3f t_normal;
+	if (interval.t0 < interval.t1 && interval.t0 > 0.0f)
+	{
+		t = interval.t0;
+		t_normal = interval.N0;
+	}
+	else
+	{
+		t = interval.t1;
+		t_normal = interval.N1;
+	}
+	Vector3f new_point = newRay.Evaluate(t);
+	if (t == t_minus || t == t_plus)
+	{
+		t_normal = Vector3f(new_point.x(), new_point.y(), 0.0f);
+	}
+	Vector3f point = ray.Evaluate(t);
+	Vector3f normal = q.conjugate()._transformVector(t_normal);
+	float theta = atan2(t_normal.y(), t_normal.x());
+	Vector2f uv = Vector2f(theta / (2 * PI), t_normal.z() / axis.norm());
+	data.update(t, point, normal, uv);
+	return true;
+}
+
+Triangle::Triangle(MeshData* meshdata)
+{
+	V0 = meshdata->vertices[0].pnt;
+	N0 = meshdata->vertices[0].nrm;
+	T0 = meshdata->vertices[0].tex;
+
+	V1 = meshdata->vertices[1].pnt;
+	N1 = meshdata->vertices[1].nrm;
+	T1 = meshdata->vertices[1].tex;
+
+	V2 = meshdata->vertices[2].pnt;
+	N2 = meshdata->vertices[2].nrm;
+	T2 = meshdata->vertices[2].tex;
 }
 
 bool Triangle::Intersect(Ray ray, Intersection& data)
 {
-	return false;
+	Vector3f E1 = V1 - V0;
+	Vector3f E2 = V2 - V0;
+
+	Vector3f p = ray.D.cross(E2);
+	float d = p.dot(E1);
+	
+	if (d == 0)
+	{
+		return false; // No Intersection
+	}
+
+	Vector3f S = ray.Q - V0;
+	float u = p.dot(S) / d;
+
+	if (u < 0.0f || u > 1.0f)
+	{
+		return false; // No Intersection, Ray intersects plane, but outside E2 edge 
+	}
+	Vector3f q = S.cross(E1);
+
+	float v = ray.D.dot(q) / d;
+
+	if (v < 0.0f || (u + v) > 1.0f)
+	{
+		return false; // No Intersection, Ray intersects plane, but outside other edges
+	}
+
+	float t = E2.dot(q) / d;
+	if (t < 0.0f)
+	{
+		return false; // No Intersection, Ray's negative half intersects triangle
+	}
+	Vector3f point = ray.Evaluate(t);
+	Vector3f normal = (1 - u - v) * N0 + u*N1 + v*N2;
+	Vector2f uv = (1 - u - v) * T0 + u * T1 + v * T2;
+	data.update(t, point, normal, uv);
+	return true;
 }
 
 void Intersection::update(float tvalue, Vector3f P, Vector3f N, Vector2f UV)
