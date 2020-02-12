@@ -8,7 +8,10 @@ class Ray
 public:
 	Vector3f Q; // Starting point
 	Vector3f D; // Unit length direction of the ray
-
+	Ray(Vector3f _q = Vector3f(0.0f, 0.0f, 0.0f), Vector3f _d = Vector3f(0.0f, 0.0f, 0.0f)) : Q(_q), D(_d)
+	{
+	}
+	
 	Vector3f Evaluate(float t)
 	{
 		return Q + t * D;
@@ -32,7 +35,12 @@ public:
 	Vector3f N;		// Normal of surface at the intersection point (in world coordinates)
 	Vector2f UV;	// Texture coordinates at the intersection point
 
-	void update(float tvalue, Vector3f P, Vector3f N, Vector2f UV);
+	Intersection():t(std::numeric_limits<float>::max()),
+	object(nullptr),
+	P(Vector3f(0.0, 0.0f, 0.0f)),
+	N(Vector3f(0.0f, 0.0f, 0.0f)),
+	UV(Vector2f(0.0f, 0.0f)){}
+	void update(float tvalue, Vector3f P, Vector3f N, Vector2f UV, Obj* obj);
 };
 
 class Interval
@@ -50,6 +58,8 @@ public:
 class Shape
 {
 public:
+	Obj* object;
+	
 	virtual bool Intersect(Ray ray, Intersection& data) = 0;
 };
 
@@ -85,6 +95,7 @@ public:
 
 
 struct MeshData;
+typedef Eigen::Matrix<unsigned int, 3, 1 > TriData;
 class Triangle : public Shape
 {
 public:
@@ -92,6 +103,6 @@ public:
 	Vector3f N0, N1, N2;
 	Vector2f T0, T1, T2;
 
-	Triangle(MeshData* meshdata);
+	Triangle(MeshData* meshdata,TriData);
 	bool Intersect(Ray ray, Intersection& data) override;
 };

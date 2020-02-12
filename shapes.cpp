@@ -112,7 +112,7 @@ bool Sphere::Intersect(Ray ray, Intersection& data)
 	float theta = atan2f(normal.dot(Vector3f(0.0f, 1.0f, 0.0f)), normal.dot(Vector3f(1.0f, 0.0f, 0.0f)));
 	float fi = acos(normal.dot(Vector3f(0.0f, 0.0f, 1.0f)));
 	Vector2f uv = Vector2f(theta/(2*PI), fi/PI);
-	data.update(t, point, normal, uv);
+	data.update(t, point, normal, uv, object);
 	return true;
 }
 
@@ -157,7 +157,7 @@ bool Box::Intersect(Ray ray, Intersection& data)
 	}
 	Vector3f point = ray.Evaluate(t);	
 	Vector2f uv = Vector2f(0,0);
-	data.update(t, point, normal, uv);
+	data.update(t, point, normal, uv,object);
 	return true;
 }
 
@@ -220,23 +220,23 @@ bool Cylinder::Intersect(Ray ray, Intersection& data)
 	Vector3f normal = q.conjugate()._transformVector(t_normal);
 	float theta = atan2(t_normal.y(), t_normal.x());
 	Vector2f uv = Vector2f(theta / (2 * PI), t_normal.z() / axis.norm());
-	data.update(t, point, normal, uv);
+	data.update(t, point, normal, uv,object);
 	return true;
 }
 
-Triangle::Triangle(MeshData* meshdata)
+Triangle::Triangle(MeshData* meshdata, TriData tridata)
 {
-	V0 = meshdata->vertices[0].pnt;
-	N0 = meshdata->vertices[0].nrm;
-	T0 = meshdata->vertices[0].tex;
+	V0 = meshdata->vertices[tridata.x()].pnt;
+	N0 = meshdata->vertices[tridata.x()].nrm;
+	T0 = meshdata->vertices[tridata.x()].tex;
 
-	V1 = meshdata->vertices[1].pnt;
-	N1 = meshdata->vertices[1].nrm;
-	T1 = meshdata->vertices[1].tex;
+	V1 = meshdata->vertices[tridata.y()].pnt;
+	N1 = meshdata->vertices[tridata.y()].nrm;
+	T1 = meshdata->vertices[tridata.y()].tex;
 
-	V2 = meshdata->vertices[2].pnt;
-	N2 = meshdata->vertices[2].nrm;
-	T2 = meshdata->vertices[2].tex;
+	V2 = meshdata->vertices[tridata.z()].pnt;
+	N2 = meshdata->vertices[tridata.z()].nrm;
+	T2 = meshdata->vertices[tridata.z()].tex;
 }
 
 bool Triangle::Intersect(Ray ray, Intersection& data)
@@ -276,11 +276,11 @@ bool Triangle::Intersect(Ray ray, Intersection& data)
 	Vector3f point = ray.Evaluate(t);
 	Vector3f normal = (1 - u - v) * N0 + u*N1 + v*N2;
 	Vector2f uv = (1 - u - v) * T0 + u * T1 + v * T2;
-	data.update(t, point, normal, uv);
+	data.update(t, point, normal, uv,object);
 	return true;
 }
 
-void Intersection::update(float tvalue, Vector3f P, Vector3f N, Vector2f UV)
+void Intersection::update(float tvalue, Vector3f P, Vector3f N, Vector2f UV, Obj* obj)
 {
 	if (tvalue < t)
 	{
@@ -288,5 +288,6 @@ void Intersection::update(float tvalue, Vector3f P, Vector3f N, Vector2f UV)
 		this->P = P;
 		this->N = N;
 		this->UV = UV;
+		this->object = obj;
 	}
 }

@@ -251,8 +251,8 @@ void applyLight(Material* mat, const unsigned int program)
 ////////////////////////////////////////////////////////////////////////
 // Obj: encapsulates objects to be drawn; uses OpenGL's VAOs
 ////////////////////////////////////////////////////////////////////////
-Obj::Obj(MeshData* m, const Matrix4f& tr, Material* b, Shape* s)
-    : meshdata(m), modelTR(tr), material(b), shape(s)
+Obj::Obj(MeshData* m, const Matrix4f& tr, Material* b)
+    : meshdata(m), modelTR(tr), material(b)
 {
     Vector4f sum(0,0,0,0);
     //for (int i=0;  i<meshdata->vertices.size();  i++)
@@ -464,7 +464,11 @@ std::uniform_real_distribution<> myrandom(0.0, 1.0);
 
 void Realtime::DrawOutput()
 {
-	
+	Vector3f E = eye;
+	float rx = ry * width / height;
+	Vector3f X = rx * orient._transformVector(Vector3f::UnitX());
+	Vector3f Y = ry * orient._transformVector(Vector3f::UnitY());
+	Vector3f Z = -1 * orient._transformVector(Vector3f::UnitZ());
 //#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
 	for (int y = 0; y < height; y++) {
 
@@ -482,30 +486,47 @@ void Realtime::DrawOutput()
 				color = Color(0.0, 1.0, 0.0);
 			else
 				color = Color(1.0, 1.0, 1.0);*/
-			imagePointer[y * width + x] = color;
+			Vector3f dir = dx * X + dy * Y + Z;
+			Ray ray(E, dir.normalized());
+			Intersection intersection;
+			for(Shape* shape : shapes)
+			{
+				if (!shape->object->material->isLight())
+				{
+					shape->Intersect(ray, intersection);
+				}
+			}
+			if (intersection.object != nullptr)
+			{
+				imagePointer[y * width + x] = intersection.object->material->Kd;
+			}
+			else
+			{
+				imagePointer[y * width + x] = Color(0.0, 0.0, 0.0);
+			}
 		}
-		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		raytraceout.Use();
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	raytraceout.Use();
 
-		glGenTextures(1, &imageTexture);
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, imageTexture);
+	glGenTextures(1, &imageTexture);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, imageTexture);
 
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
 
-		glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
-		glGenerateMipmap(GL_TEXTURE_2D);
+	glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
+	glGenerateMipmap(GL_TEXTURE_2D);
 
-		int loc = glGetUniformLocation(raytraceout.program, "imageTex");
-		glUniform1i(loc, 1);
+	int loc = glGetUniformLocation(raytraceout.program, "imageTex");
+	glUniform1i(loc, 1);
 
-		DrawFSQ();
-		raytraceout.Unuse();
-		glutSwapBuffers();
+	DrawFSQ();
+	raytraceout.Unuse();
+	glutSwapBuffers();
 	}
 	fprintf(stderr, "\n");
 
@@ -656,9 +677,11 @@ void Realtime::sphere(const Vector3f center, const float r, Material* mat)
 {
     Matrix4f m = translate(center) * scale(Vector3f(r,r,r));
     Vector3f rrr(r,r,r);
-	Sphere* sphere = new Sphere(center, r);
-    Obj* obj = new Obj(sphMesh, m, mat, sphere);
+    Obj* obj = new Obj(sphMesh, m, mat);
     objs.push_back(obj);
+	Sphere* sphere = new Sphere(center, r);
+	sphere->object = obj;
+	shapes.push_back(sphere);
     if (mat->isLight())
         lights.push_back(obj);
 }
@@ -666,9 +689,11 @@ void Realtime::sphere(const Vector3f center, const float r, Material* mat)
 void Realtime::box(const Vector3f base, const Vector3f diag, Material* mat)
 {
     Matrix4f m = translate(base) * scale(Vector3f(diag[0],diag[1],diag[2]));
-	Box* box = new Box(base, diag);
-    Obj* obj = new Obj(boxMesh, m, mat, box);
+    Obj* obj = new Obj(boxMesh, m, mat);
     objs.push_back(obj);
+	Box* box = new Box(base, diag);
+	box->object = obj;
+	shapes.push_back(box);
     if (mat->isLight())
         lights.push_back(obj);
 }
@@ -676,6 +701,7 @@ void Realtime::box(const Vector3f base, const Vector3f diag, Material* mat)
 
 void Realtime::cylinder(const Vector3f base, const Vector3f axis, const float radius, Material* mat)
 {
+	return;
     Vector3f Z(0.0f, 0.0f, 1.0f);
     Vector3f C = axis.normalized();
     Vector3f B = C.cross(Z);
@@ -692,18 +718,26 @@ void Realtime::cylinder(const Vector3f base, const Vector3f axis, const float ra
 
     Matrix4f m = translate(base)*R*scale(Vector3f(radius,radius,axis.norm()));
     Vector3f rrr(radius,radius,radius);
-	Cylinder* cylinder = new Cylinder(base,axis,radius);
-    Obj* obj = new Obj(cylMesh, m, mat,cylinder);
+    Obj* obj = new Obj(cylMesh, m, mat);
     objs.push_back(obj);
+	Cylinder* cylinder = new Cylinder(base,axis,radius);
+	cylinder->object = obj;
+	shapes.push_back(cylinder);
     if (mat->isLight())
         lights.push_back(obj);
 }
 
 void Realtime::triangleMesh(MeshData* meshdata)
 {
-	Triangle* triangle = new Triangle(meshdata);
-	Obj* obj = new Obj(meshdata, Matrix4f::Identity(), meshdata->mat, triangle);
+	return;
+	Obj* obj = new Obj(meshdata, Matrix4f::Identity(), meshdata->mat);
 	objs.push_back(obj);
+	for(TriData tridata : meshdata->triangles)
+	{
+		Triangle* triangle = new Triangle(meshdata, tridata);
+		triangle->object = obj;
+		shapes.push_back(triangle);
+	}
 	if (meshdata->mat->isLight())
 		lights.push_back(obj);
 }

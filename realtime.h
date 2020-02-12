@@ -40,10 +40,9 @@ public:
     MeshData* meshdata;
     Matrix4f modelTR;
     Material* material;
-	Shape* shape;
     Vector3f center;
     unsigned int vao;
-    Obj(MeshData* m, const Matrix4f& tr, Material* b, Shape* s);
+    Obj(MeshData* m, const Matrix4f& tr, Material* b);
     void draw();
     Vector3f Center() { return center; }
 };
@@ -51,7 +50,7 @@ public:
 ////////////////////////////////////////////////////////////////////////
 // Realtime handles all realtime drawing/interaction
 ////////////////////////////////////////////////////////////////////////
-
+class Shape;
 class Realtime
 {
 public:
@@ -92,6 +91,7 @@ public:
     int setTexture(const int width, const int height, unsigned char* image);
     
     std::vector<Obj*> objs;
+	std::vector<Shape*> shapes;
     std::vector<Obj*> lights;
 
     Quaternionf ViewQuaternion() {
