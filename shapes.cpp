@@ -119,7 +119,7 @@ bool Sphere::Intersect(Ray ray, Intersection& data)
 Box::Box(Vector3f corner, Vector3f diagonal)
 {
 	slabs[0].N = Vector3f(1, 0, 0);
-	slabs[0].d0 = corner.x();
+	slabs[0].d0 = -corner.x();
 	slabs[0].d1 = -corner.x() - diagonal.x();
 
 	slabs[1].N = Vector3f(0, 1, 0);
@@ -179,12 +179,18 @@ bool Cylinder::Intersect(Ray ray, Intersection& data)
 	s.d1 = - axis.norm();
 	interval.Intersect(newRay, s);
 	float t_minus,t_plus;
-	float a = newRay.D.x() * newRay.D.x() + newRay.D.y() + newRay.D.y();
+	float a = newRay.D.x() * newRay.D.x() + newRay.D.y() * newRay.D.y();
 	float b = 2 * (newRay.D.x() * newRay.Q.x() + newRay.D.y() * newRay.Q.y());
 	float c = newRay.Q.x() * newRay.Q.x() + newRay.Q.y() * newRay.Q.y() - radius * radius;
 
-	t_plus = (-b + sqrt(b * b - 4 * a * c)) / (2 * a);
-	t_minus = (-b - sqrt(b * b - 4 * a * c)) / (2 * a);
+	float det = b * b - 4 * a * c;
+	if(det < 0.0f)
+	{
+		return false; // No Intersection
+	}
+	
+	t_plus = (-b + sqrt(det)) / (2 * a);
+	t_minus = (-b - sqrt(det)) / (2 * a);
 
 	if (interval.t0 < t_minus)
 	{

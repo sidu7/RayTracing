@@ -462,8 +462,46 @@ std::mt19937_64 RNGen;
 std::uniform_real_distribution<> myrandom(0.0, 1.0);
 // Call myrandom(RNGen) to get a uniformly distributed random number in [0,1].
 
+
+// Write the image as a HDR(RGBE) image.  
+#include "rgbe.h"
+void WriteHdrImage(const std::string outName, const int width, const int height, Color* image)
+{
+	// Turn image from a 2D-bottom-up array of Vector3D to an top-down-array of floats
+	float* data = new float[width * height * 3];
+	float* dp = data;
+	for (int y = height - 1; y >= 0; --y) {
+		for (int x = 0; x < width; ++x) {
+			Color pixel = image[y * width + x];
+			*dp++ = pixel[0];
+			*dp++ = pixel[1];
+			*dp++ = pixel[2];
+		}
+	}
+
+	// Write image to file in HDR (a.k.a RADIANCE) format
+	rgbe_header_info info;
+	char errbuf[100] = { 0 };
+
+	FILE* fp = fopen(outName.c_str(), "wb");
+	info.valid = false;
+	int r = RGBE_WriteHeader(fp, width, height, &info, errbuf);
+	if (r != RGBE_RETURN_SUCCESS)
+		printf("error: %s\n", errbuf);
+
+	r = RGBE_WritePixels_RLE(fp, data, width, height, errbuf);
+	if (r != RGBE_RETURN_SUCCESS)
+		printf("error: %s\n", errbuf);
+	fclose(fp);
+
+	delete data;
+}
+
 void Realtime::DrawOutput()
 {
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	
 	Vector3f E = eye;
 	float rx = ry * width / height;
 	Vector3f X = rx * orient._transformVector(Vector3f::UnitX());
@@ -498,36 +536,39 @@ void Realtime::DrawOutput()
 			}
 			if (intersection.object != nullptr)
 			{
-				imagePointer[y * width + x] = intersection.object->material->Kd;
+				imagePointer[y * width + x] = intersection.N.normalized();
 			}
 			else
 			{
 				imagePointer[y * width + x] = Color(0.0, 0.0, 0.0);
 			}
 		}
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	raytraceout.Use();
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		raytraceout.Use();
 
-	glGenTextures(1, &imageTexture);
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, imageTexture);
+		glGenTextures(1, &imageTexture);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, imageTexture);
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
 
-	glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
-	glGenerateMipmap(GL_TEXTURE_2D);
+		glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
+		glGenerateMipmap(GL_TEXTURE_2D);
 
-	int loc = glGetUniformLocation(raytraceout.program, "imageTex");
-	glUniform1i(loc, 1);
+		int loc = glGetUniformLocation(raytraceout.program, "imageTex");
+		glUniform1i(loc, 1);
 
-	DrawFSQ();
-	raytraceout.Unuse();
-	glutSwapBuffers();
+		DrawFSQ();
+		raytraceout.Unuse();
+		glutSwapBuffers();
+
 	}
+	WriteHdrImage("Raycast_diffuse.hdr", width, height, imagePointer);
+	printf("Written to HDR file\n");
 	fprintf(stderr, "\n");
 
 }
@@ -701,7 +742,6 @@ void Realtime::box(const Vector3f base, const Vector3f diag, Material* mat)
 
 void Realtime::cylinder(const Vector3f base, const Vector3f axis, const float radius, Material* mat)
 {
-	return;
     Vector3f Z(0.0f, 0.0f, 1.0f);
     Vector3f C = axis.normalized();
     Vector3f B = C.cross(Z);
@@ -729,7 +769,6 @@ void Realtime::cylinder(const Vector3f base, const Vector3f axis, const float ra
 
 void Realtime::triangleMesh(MeshData* meshdata)
 {
-	return;
 	Obj* obj = new Obj(meshdata, Matrix4f::Identity(), meshdata->mat);
 	objs.push_back(obj);
 	for(TriData tridata : meshdata->triangles)
