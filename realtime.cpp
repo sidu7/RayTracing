@@ -360,6 +360,18 @@ Realtime::Realtime()
 // This function enters the event loop.
 void Realtime::run(Color* image, int pass)
 {
+
+	// Bounding boxes
+	for(Shape* shape : shapes)
+	{
+		Box* b = new Box(shape->Bounding_Box().min(),
+			shape->Bounding_Box().diagonal());
+		b->object = shape->object;
+		bboxes.push_back(b);
+	}
+	
+	Tree.init(shapes.begin(), shapes.end());
+	
     cDist = eye.norm();
 	imagePointer = image;
     glutReshapeWindow(width, height);
@@ -504,10 +516,11 @@ void Realtime::DrawOutput()
 	
 	Vector3f E = eye;
 	float rx = ry * width / height;
-	Vector3f X = rx * orient._transformVector(Vector3f::UnitX());
-	Vector3f Y = ry * orient._transformVector(Vector3f::UnitY());
-	Vector3f Z = -1 * orient._transformVector(Vector3f::UnitZ());
-//#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
+	Quaternionf o = ViewQuaternion();
+	Vector3f X = rx * o._transformVector(Vector3f::UnitX());
+	Vector3f Y = ry * o._transformVector(Vector3f::UnitY());
+	Vector3f Z = -1 * o._transformVector(Vector3f::UnitZ());
+#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
 	for (int y = 0; y < height; y++) {
 
 		fprintf(stderr, "Rendering %4d\r", y);
@@ -515,8 +528,7 @@ void Realtime::DrawOutput()
 
 			float dx = 2 * (x + 0.5f) / width - 1;
 			float dy = 2 * (y + 0.5f) / height - 1;
-
-
+			
 			/*Color color;
 			if ((x - width / 2) * (x - width / 2) + (y - height / 2) * (y - height / 2) < 100 * 100)
 				color = Color(myrandom(RNGen), myrandom(RNGen), myrandom(RNGen));
@@ -527,47 +539,70 @@ void Realtime::DrawOutput()
 			Vector3f dir = dx * X + dy * Y + Z;
 			Ray ray(E, dir.normalized());
 			Intersection intersection;
-			for(Shape* shape : shapes)
+			
+			Minimizer minimizer(ray,&intersection);
+			BVMinimize(Tree, minimizer);
+			
+			/*for(Shape* shape : shapes)
 			{
 				if (!shape->object->material->isLight())
 				{
 					shape->Intersect(ray, intersection);
 				}
-			}
+			}*/
 			if (intersection.object != nullptr)
 			{
-				imagePointer[y * width + x] = intersection.N.normalized();
+				imagePointer[y * width + x] = intersection.object->material->Kd;
+				//imagePointer[y * width + x] = intersection.N.normalized();
+				//imagePointer[y * width + x] = (intersection.t-5)/4;
+				//imagePointer[y * width + x] = intersection.P.normalized();
+
+				// Phong Lighting
+				Vector3f L = (lights[0]->center - intersection.P).normalized();
+				Vector3f V = ViewDirection().normalized();
+				Vector3f H = (L + V).normalized();
+				Vector3f Ia = Vector3f(0.2, 0.2, 0.2);
+				Vector3f Ii = Vector3f(1.3, 1.3, 1.3);
+				Vector3f Kd = intersection.object->material->Kd;
+				Vector3f Ks = intersection.object->material->Ks;
+				float alpha = intersection.object->material->alpha;
+				Vector3f N = intersection.N.normalized();
+				float NL = std::max(N.dot(L), 0.0f);
+				float NH = pow(std::max(N.dot(H), 0.0f), alpha);
+				Vector3f color = Ia.cwiseProduct(Kd) + Ii.cwiseProduct(Kd)* NL + Ii.cwiseProduct(Ks) * NH;
+				
+				//imagePointer[y * width + x] = color;
 			}
 			else
 			{
 				imagePointer[y * width + x] = Color(0.0, 0.0, 0.0);
 			}
 		}
-		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		raytraceout.Use();
-
-		glGenTextures(1, &imageTexture);
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, imageTexture);
-
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
-
-		glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
-		glGenerateMipmap(GL_TEXTURE_2D);
-
-		int loc = glGetUniformLocation(raytraceout.program, "imageTex");
-		glUniform1i(loc, 1);
-
-		DrawFSQ();
-		raytraceout.Unuse();
-		glutSwapBuffers();
 
 	}
-	WriteHdrImage("Raycast_diffuse.hdr", width, height, imagePointer);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	raytraceout.Use();
+
+	glGenTextures(1, &imageTexture);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, imageTexture);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
+	glGenerateMipmap(GL_TEXTURE_2D);
+
+	int loc = glGetUniformLocation(raytraceout.program, "imageTex");
+	glUniform1i(loc, 1);
+
+	DrawFSQ();
+	raytraceout.Unuse();
+	glutSwapBuffers();
+	WriteHdrImage("Raycast_.hdr", width, height, imagePointer);
 	printf("Written to HDR file\n");
 	fprintf(stderr, "\n");
 
@@ -779,4 +814,12 @@ void Realtime::triangleMesh(MeshData* meshdata)
 	}
 	if (meshdata->mat->isLight())
 		lights.push_back(obj);
+}
+
+namespace Eigen
+{
+	AlignedBox<float, 3> bounding_box(const Shape* obj)
+	{
+		return obj->Bounding_Box();
+	}
 }

@@ -92,7 +92,10 @@ public:
     
     std::vector<Obj*> objs;
 	std::vector<Shape*> shapes;
+	std::vector<Shape*> bboxes;
     std::vector<Obj*> lights;
+
+	KdBVH<float, 3, Shape*> Tree;
 
     Quaternionf ViewQuaternion() {
         Quaternionf q = angleAxis((tilt-90.0f)*Radians, Vector3f(1,0,0))

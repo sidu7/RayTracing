@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/StdVector>
+#include <Eigen_unsupported/Eigen/BVH> // For KdBVH
 
 using namespace Eigen;
 class Ray
@@ -55,12 +56,15 @@ public:
 	void Intersect(Ray ray, Slab slab);
 };
 
+typedef AlignedBox<float, 3> Bbox;
+
 class Shape
 {
 public:
 	Obj* object;
 	
 	virtual bool Intersect(Ray ray, Intersection& data) = 0;
+	virtual Bbox Bounding_Box() const = 0;
 };
 
 class Sphere : public Shape
@@ -71,15 +75,20 @@ public:
 
 	Sphere(Vector3f center, float radius);
 	bool Intersect(Ray ray, Intersection& data) override;
+	Bbox Bounding_Box() const override;
 };
 
 class Box : public Shape
 {
 public:
 	Slab slabs[3];
+	Vector3f corner;
+	Vector3f diagonal;
 	
-	Box(Vector3f corner, Vector3f diagonal);	
+	Box(Vector3f c, Vector3f d);	
 	bool Intersect(Ray ray, Intersection& data) override;
+	bool IntersectBoundingBox(Ray ray, Intersection& data, Interval& interval);
+	Bbox Bounding_Box() const override;
 };
 
 class Cylinder : public Shape
@@ -88,9 +97,12 @@ public:
 	Vector3f base;
 	Vector3f axis;
 	float radius;
+	Vector3f min;
+	Vector3f max;
 	
 	Cylinder(Vector3f b, Vector3f a, float r);
 	bool Intersect(Ray ray, Intersection& data) override;
+	Bbox Bounding_Box() const override;
 };
 
 
@@ -102,7 +114,25 @@ public:
 	Vector3f V0, V1, V2;
 	Vector3f N0, N1, N2;
 	Vector2f T0, T1, T2;
+	Vector3f min, max;
 
 	Triangle(MeshData* meshdata,TriData);
 	bool Intersect(Ray ray, Intersection& data) override;
+	Bbox Bounding_Box() const override;
+};
+
+
+// KdBVH tree
+class Minimizer
+{
+public:
+	typedef float Scalar;
+	Ray ray;
+	Intersection* data;
+	
+	Minimizer(const Ray& r, Intersection* d) : ray(r), data(d) {}
+
+	float minimumOnObject(Shape* obj);
+
+	float minimumOnVolume(const Bbox& box);
 };
