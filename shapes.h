@@ -97,8 +97,9 @@ public:
 	Vector3f base;
 	Vector3f axis;
 	float radius;
-	Vector3f min;
-	Vector3f max;
+	
+	Vector3f min; // Minimum point for Bounding box
+	Vector3f max; // Maximum point for Bounding box
 	
 	Cylinder(Vector3f b, Vector3f a, float r);
 	bool Intersect(Ray ray, Intersection& data) override;
@@ -111,10 +112,11 @@ typedef Eigen::Matrix<unsigned int, 3, 1 > TriData;
 class Triangle : public Shape
 {
 public:
-	Vector3f V0, V1, V2;
-	Vector3f N0, N1, N2;
-	Vector2f T0, T1, T2;
-	Vector3f min, max;
+	Vector3f V0, V1, V2; // 3 vertices
+	Vector3f N0, N1, N2; // 3 normals
+	Vector2f T0, T1, T2; // 3 tex coords
+	
+	Vector3f min, max; // Minimum and maximum points for Bounding Box
 
 	Triangle(MeshData* meshdata,TriData);
 	bool Intersect(Ray ray, Intersection& data) override;

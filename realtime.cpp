@@ -520,6 +520,9 @@ void Realtime::DrawOutput()
 	Vector3f X = rx * o._transformVector(Vector3f::UnitX());
 	Vector3f Y = ry * o._transformVector(Vector3f::UnitY());
 	Vector3f Z = -1 * o._transformVector(Vector3f::UnitZ());
+
+	std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::high_resolution_clock::now();
+	
 #pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
 	for (int y = 0; y < height; y++) {
 
@@ -558,7 +561,7 @@ void Realtime::DrawOutput()
 				//imagePointer[y * width + x] = intersection.P.normalized();
 
 				// Phong Lighting
-				Vector3f L = (lights[0]->center - intersection.P).normalized();
+				/*Vector3f L = (lights[0]->center - intersection.P).normalized();
 				Vector3f V = ViewDirection().normalized();
 				Vector3f H = (L + V).normalized();
 				Vector3f Ia = Vector3f(0.2, 0.2, 0.2);
@@ -569,7 +572,7 @@ void Realtime::DrawOutput()
 				Vector3f N = intersection.N.normalized();
 				float NL = std::max(N.dot(L), 0.0f);
 				float NH = pow(std::max(N.dot(H), 0.0f), alpha);
-				Vector3f color = Ia.cwiseProduct(Kd) + Ii.cwiseProduct(Kd)* NL + Ii.cwiseProduct(Ks) * NH;
+				Vector3f color = Ia.cwiseProduct(Kd) + Ii.cwiseProduct(Kd)* NL + Ii.cwiseProduct(Ks) * NH;*/
 				
 				//imagePointer[y * width + x] = color;
 			}
@@ -580,6 +583,13 @@ void Realtime::DrawOutput()
 		}
 
 	}
+
+	std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<float> duration = end - start;
+
+	float ms = duration.count() * 1000.0f;
+	printf("Execution Time: %f ms", ms);
+	
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	raytraceout.Use();
