@@ -13,6 +13,16 @@
 #include "shapes.h"
 
 
+// A good quality *thread-safe* Mersenne Twister random number generator.
+#include <random>
+std::mt19937_64 RNGen;
+std::uniform_real_distribution<> myrandom(0.0, 1.0);
+// Call myrandom(RNGen) to get a uniformly distributed random number in [0,1].
+
+
+// Write the image as a HDR(RGBE) image.  
+#include "rgbe.h"
+
 // Stupid C++ needs callbacks to be static functions.
 static Realtime* globalRealtime = nullptr;
 void CBDrawScene()  { globalRealtime->DrawScene(); }
@@ -372,11 +382,99 @@ void Realtime::run(Color* image, int pass)
 	
 	Tree.init(shapes.begin(), shapes.end());
 	
+	max_passes = 512;
+
     cDist = eye.norm();
 	imagePointer = image;
     glutReshapeWindow(width, height);
     glutMainLoop();
 }
+Vector3f Realtime::TraceRay(Ray& ray)
+{
+	Vector3f C = Vector3f(0.0f,0.0f,0.0f);
+	Vector3f W = Vector3f(1.0f,1.0f,1.0f);
+	Intersection P;
+	const float RussianRoulette = 0.8f;
+	const float Epsilon = 0.000001;
+
+	Minimizer minimizer(ray, &P);
+	BVMinimize(Tree, minimizer);
+
+	Vector3f N = P.N;
+	if (P.object == nullptr)
+	{
+		return C;
+	}
+	if (P.object->material->isLight())
+	{
+		return EvalRadiance(P);
+	}
+
+	while (myrandom(RNGen) <= RussianRoulette)
+	{
+		Vector3f wi = SampleBrdf(N).normalized();
+		Ray new_ray(P.P, wi);
+		Intersection Q;
+		Minimizer mini2(new_ray, &Q);
+		BVMinimize(Tree, mini2);
+
+		if (Q.object == nullptr)
+		{
+			break;
+		}
+
+		Vector3f f = EvalScattering(N, wi,P.object->material->Kd);
+		float p = PdfBrdf(N, wi) * RussianRoulette;
+
+		if (p < Epsilon)
+		{
+			break;
+		}
+
+		W = W.cwiseProduct(f / p);
+
+		if (Q.object->material->isLight())
+		{
+			C += W.cwiseProduct(EvalRadiance(Q));
+		}
+
+		P = Q;
+	}
+
+	return C;
+}
+
+Vector3f Realtime::SampleBrdf(Vector3f N)
+{
+	float psi1 = myrandom(RNGen);
+	float psi2 = myrandom(RNGen);
+
+	return SampleLobe(N,sqrt(psi1),2*PI*psi2);
+}
+
+Vector3f Realtime::SampleLobe(Vector3f N, float c, float fi)
+{
+	float s = sqrt(1 - c * c);
+	Vector3f K = Vector3f(s * cos(fi), s * sin(fi), c);
+	Quaternionf q = Quaternionf::FromTwoVectors(Vector3f::UnitZ(), N);
+	return q._transformVector(K);
+}
+
+Vector3f Realtime::EvalScattering(Vector3f N, Vector3f wi, Vector3f Kd)
+{
+	return fabs(N.dot(wi)) * Kd / PI;
+}
+
+float Realtime::PdfBrdf(Vector3f N, Vector3f wi)
+{
+	return N.dot(wi) / PI;
+}
+
+Vector3f Realtime::EvalRadiance(Intersection& Q)
+{
+	return Q.object->material->Kd;
+}
+
 // Called when the scene needs to be redrawn.
 void Realtime::DrawScene()
 {
@@ -468,15 +566,6 @@ void Realtime::DrawScene()
     glutSwapBuffers();
 }
 
-// A good quality *thread-safe* Mersenne Twister random number generator.
-#include <random>
-std::mt19937_64 RNGen;
-std::uniform_real_distribution<> myrandom(0.0, 1.0);
-// Call myrandom(RNGen) to get a uniformly distributed random number in [0,1].
-
-
-// Write the image as a HDR(RGBE) image.  
-#include "rgbe.h"
 void WriteHdrImage(const std::string outName, const int width, const int height, Color* image)
 {
 	// Turn image from a 2D-bottom-up array of Vector3D to an top-down-array of floats
@@ -523,99 +612,70 @@ void Realtime::DrawOutput()
 
 	std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::high_resolution_clock::now();
 	
+	for (int pass = 1; pass <= max_passes; ++pass)
+	{
 #pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
-	for (int y = 0; y < height; y++) {
+		for (int y = 0; y < height; y++) {
 
-		fprintf(stderr, "Rendering %4d\r", y);
-		for (int x = 0; x < width; x++) {
+			fprintf(stderr, "Rendering %4d\r", y);
+			for (int x = 0; x < width; x++) {
 
-			float dx = 2 * (x + 0.5f) / width - 1;
-			float dy = 2 * (y + 0.5f) / height - 1;
-			
-			/*Color color;
-			if ((x - width / 2) * (x - width / 2) + (y - height / 2) * (y - height / 2) < 100 * 100)
-				color = Color(myrandom(RNGen), myrandom(RNGen), myrandom(RNGen));
-			else if (abs(x - width / 2) < 4 || abs(y - height / 2) < 4)
-				color = Color(0.0, 1.0, 0.0);
-			else
-				color = Color(1.0, 1.0, 1.0);*/
-			Vector3f dir = dx * X + dy * Y + Z;
-			Ray ray(E, dir.normalized());
-			Intersection intersection;
-			
-			Minimizer minimizer(ray,&intersection);
-			BVMinimize(Tree, minimizer);
-			
-			/*for(Shape* shape : shapes)
-			{
-				if (!shape->object->material->isLight())
-				{
-					shape->Intersect(ray, intersection);
-				}
-			}*/
-			if (intersection.object != nullptr)
-			{
-				imagePointer[y * width + x] = intersection.object->material->Kd;
-				//imagePointer[y * width + x] = intersection.N.normalized();
-				//imagePointer[y * width + x] = (intersection.t-5)/4;
-				//imagePointer[y * width + x] = intersection.P.normalized();
+				float dx = 2 * (x + 0.5f) / width - 1;
+				float dy = 2 * (y + 0.5f) / height - 1;
 
-				// Phong Lighting
-				/*Vector3f L = (lights[0]->center - intersection.P).normalized();
-				Vector3f V = ViewDirection().normalized();
-				Vector3f H = (L + V).normalized();
-				Vector3f Ia = Vector3f(0.2, 0.2, 0.2);
-				Vector3f Ii = Vector3f(1.3, 1.3, 1.3);
-				Vector3f Kd = intersection.object->material->Kd;
-				Vector3f Ks = intersection.object->material->Ks;
-				float alpha = intersection.object->material->alpha;
-				Vector3f N = intersection.N.normalized();
-				float NL = std::max(N.dot(L), 0.0f);
-				float NH = pow(std::max(N.dot(H), 0.0f), alpha);
-				Vector3f color = Ia.cwiseProduct(Kd) + Ii.cwiseProduct(Kd)* NL + Ii.cwiseProduct(Ks) * NH;*/
-				
-				//imagePointer[y * width + x] = color;
+				/*Color color;
+				if ((x - width / 2) * (x - width / 2) + (y - height / 2) * (y - height / 2) < 100 * 100)
+					color = Color(myrandom(RNGen), myrandom(RNGen), myrandom(RNGen));
+				else if (abs(x - width / 2) < 4 || abs(y - height / 2) < 4)
+					color = Color(0.0, 1.0, 0.0);
+				else
+					color = Color(1.0, 1.0, 1.0);*/
+				Vector3f dir = dx * X + dy * Y + Z;
+				Ray ray(E, dir.normalized());
+				Vector3f test = imagePointer[y * width + x];
+				test += TraceRay(ray)/pass;
+				imagePointer[y * width + x] = test;
 			}
-			else
-			{
-				imagePointer[y * width + x] = Color(0.0, 0.0, 0.0);
-			}
+
 		}
 
+		//if(pass == 1 || pass == 8 || pass == 64 || pass == 512 )
+		{
+			std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::high_resolution_clock::now();
+			std::chrono::duration<float> duration = end - start;
+
+			float ms = duration.count() * 1000.0f;
+			printf("Execution Time: %f ms", ms);
+
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			raytraceout.Use();
+
+			glGenTextures(1, &imageTexture);
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, imageTexture);
+
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+
+			glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
+			glGenerateMipmap(GL_TEXTURE_2D);
+
+			int loc = glGetUniformLocation(raytraceout.program, "imageTex");
+			glUniform1i(loc, 1);
+
+			DrawFSQ();
+			raytraceout.Unuse();
+			glutSwapBuffers();
+			//WriteHdrImage("Raycast_"+ std::to_string(pass) + ".hdr", width, height, imagePointer);
+			printf("Written to HDR file\n");
+			fprintf(stderr, "\n");
+		}
+		printf("Pass %d\n",pass);
+		fprintf(stderr, "\n");
 	}
-
-	std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<float> duration = end - start;
-
-	float ms = duration.count() * 1000.0f;
-	printf("Execution Time: %f ms", ms);
-	
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	raytraceout.Use();
-
-	glGenTextures(1, &imageTexture);
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, imageTexture);
-
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
-
-	glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
-	glGenerateMipmap(GL_TEXTURE_2D);
-
-	int loc = glGetUniformLocation(raytraceout.program, "imageTex");
-	glUniform1i(loc, 1);
-
-	DrawFSQ();
-	raytraceout.Unuse();
-	glutSwapBuffers();
-	WriteHdrImage("Raycast_.hdr", width, height, imagePointer);
-	printf("Written to HDR file\n");
-	fprintf(stderr, "\n");
-
 }
 
 void Realtime::DrawFSQ()

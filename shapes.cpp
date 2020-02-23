@@ -5,6 +5,8 @@
 
 using namespace Eigen;
 
+const float Epsilon = 0.000001;
+
 Interval::Interval() : t0(0.0f), t1(std::numeric_limits<float>::max())
 {
 }
@@ -100,7 +102,7 @@ bool Sphere::Intersect(Ray ray, Intersection& data)
 	float pT = -QbarD + sqrval;
 	float nT = -QbarD - sqrval;
 
-	if (pT < 0.0f && nT < 0.0f)
+	if (pT < Epsilon && nT < Epsilon)
 	{
 		return false; // No intersection
 	}
@@ -156,13 +158,13 @@ bool Box::IntersectBoundingBox(Ray ray, Intersection& data, Interval& interval)
 		interval.Intersect(ray, slabs[i]);
 	}
 
-	if (interval.t0 > interval.t1 || (interval.t0 < 0.0f && interval.t1 < 0.0f))
+	if (interval.t0 > interval.t1 || (interval.t0 < Epsilon && interval.t1 < Epsilon))
 	{
 		return false; // No intersection
 	}
 	float t;
 	Vector3f normal;
-	if (interval.t0 < interval.t1 && !std::signbit(interval.t0))
+	if (interval.t0 < interval.t1 && interval.t0 > Epsilon)
 	{
 		t = interval.t0;
 		normal = interval.N0;
@@ -238,13 +240,13 @@ bool Cylinder::Intersect(Ray ray, Intersection& data)
 		interval.t1 = t_plus;
 	}
 
-	if (interval.t0 > interval.t1 || (interval.t0 < 0.0f && interval.t1 < 0.0f))
+	if (interval.t0 > interval.t1 || (interval.t0 < Epsilon && interval.t1 < Epsilon))
 	{
 		return false; // No Intersection, The "off the corner" case
 	}
 	float t;
 	Vector3f t_normal;
-	if (interval.t0 < interval.t1 && interval.t0 > 0.0f)
+	if (interval.t0 < interval.t1 && interval.t0 > Epsilon)
 	{
 		t = interval.t0;
 		t_normal = interval.N0;
@@ -329,7 +331,7 @@ bool Triangle::Intersect(Ray ray, Intersection& data)
 	}
 
 	float t = E2.dot(q) / d;
-	if (t < 0.0f)
+	if (t < Epsilon)
 	{
 		return false; // No Intersection, Ray's negative half intersects triangle
 	}

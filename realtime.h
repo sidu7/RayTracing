@@ -51,6 +51,8 @@ public:
 // Realtime handles all realtime drawing/interaction
 ////////////////////////////////////////////////////////////////////////
 class Shape;
+class Ray;
+class Intersection;
 class Realtime
 {
 public:
@@ -69,6 +71,7 @@ public:
     float spin, tilt;
     float cDist;              // Distance from eye to center of scene
     //float lightSpin, lightTilt, lightDist;
+	int max_passes;
 
     int mouseX, mouseY;
     bool shifted;
@@ -125,6 +128,13 @@ public:
 
     Realtime();
 	void run(Color* image, int pass);
+
+	Vector3f TraceRay(Ray& ray);
+	Vector3f SampleBrdf(Vector3f N);
+	Vector3f SampleLobe(Vector3f N, float c, float fi);
+	Vector3f EvalScattering(Vector3f N, Vector3f wi, Vector3f Kd);
+	float PdfBrdf(Vector3f N, Vector3f wi);
+	Vector3f EvalRadiance(Intersection& Q);
 };
 
 
