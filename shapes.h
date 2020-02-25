@@ -41,6 +41,8 @@ public:
 	P(Vector3f(0.0, 0.0f, 0.0f)),
 	N(Vector3f(0.0f, 0.0f, 0.0f)),
 	UV(Vector2f(0.0f, 0.0f)){}
+
+	Intersection(Obj* _o, Vector3f _p, Vector3f _n) : object(_o), P(_p), N(_n) { }
 	void update(float tvalue, Vector3f P, Vector3f N, Vector2f UV, Obj* obj);
 };
 

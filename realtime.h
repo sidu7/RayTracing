@@ -33,7 +33,7 @@ public:
 ////////////////////////////////////////////////////////////////////////
 // Obj: encapsulates objects to be drawn; uses OpenGL's VAOs
 ////////////////////////////////////////////////////////////////////////
-
+class Shape;
 class Obj
 {
 public:
@@ -43,6 +43,7 @@ public:
     Vector3f center;
     unsigned int vao;
     Obj(MeshData* m, const Matrix4f& tr, Material* b);
+	Shape* shape;
     void draw();
     Vector3f Center() { return center; }
 };
@@ -50,7 +51,6 @@ public:
 ////////////////////////////////////////////////////////////////////////
 // Realtime handles all realtime drawing/interaction
 ////////////////////////////////////////////////////////////////////////
-class Shape;
 class Ray;
 class Intersection;
 class Realtime
@@ -135,6 +135,18 @@ public:
 	Vector3f EvalScattering(Vector3f N, Vector3f wi, Vector3f Kd);
 	float PdfBrdf(Vector3f N, Vector3f wi);
 	Vector3f EvalRadiance(Intersection& Q);
-};
+	Intersection SampleLight();
+	Intersection SampleSphere(Vector3f center, float radius, Obj* light);
+	float PdfLight(Intersection& L);
+	float GeometryFactor(Intersection& P,Intersection& L);
 
+	template<typename Iter>
+	Iter select_randomly(Iter start, Iter end) {
+		static std::random_device rd;
+		static std::mt19937 gen(rd());
+		std::uniform_int_distribution<> dis(0, std::distance(start, end) - 1);
+		std::advance(start, dis(gen));
+		return start;
+	}
+};
 

@@ -370,7 +370,6 @@ Realtime::Realtime()
 // This function enters the event loop.
 void Realtime::run(Color* image, int pass)
 {
-
 	// Bounding boxes
 	for(Shape* shape : shapes)
 	{
@@ -382,7 +381,7 @@ void Realtime::run(Color* image, int pass)
 	
 	Tree.init(shapes.begin(), shapes.end());
 	
-	max_passes = 512;
+	max_passes = 64;
 
     cDist = eye.norm();
 	imagePointer = image;
@@ -395,7 +394,7 @@ Vector3f Realtime::TraceRay(Ray& ray)
 	Vector3f W = Vector3f(1.0f,1.0f,1.0f);
 	Intersection P;
 	const float RussianRoulette = 0.8f;
-	const float Epsilon = 0.000001;
+	const float Epsilon = pow(10,-6);
 
 	Minimizer minimizer(ray, &P);
 	BVMinimize(Tree, minimizer);
@@ -412,7 +411,24 @@ Vector3f Realtime::TraceRay(Ray& ray)
 
 	while (myrandom(RNGen) <= RussianRoulette)
 	{
-		Vector3f wi = SampleBrdf(N).normalized();
+		// Explicit
+		Intersection L = SampleLight();
+		float p_some = PdfLight(L) / GeometryFactor(P, L);
+		Vector3f wiL = (L.P - P.P).normalized();
+		Ray new_ray3(P.P, wiL);
+		Intersection I;
+		Minimizer mini3(new_ray3, &I);
+		BVMinimize(Tree, mini3);
+		
+		if(p_some > 0.0f && I.object != nullptr && I.object == L.object && I.P == L.P)
+		{
+			Vector3f ff = EvalScattering(N, wiL, L.object->material->Kd);
+			C += W.cwiseProduct((ff / p_some).cwiseProduct(EvalRadiance(L)));
+		}
+
+		// Implicit
+		Vector3f wi = SampleBrdf(N);
+		wi.normalize();
 		Ray new_ray(P.P, wi);
 		Intersection Q;
 		Minimizer mini2(new_ray, &Q);
@@ -431,17 +447,52 @@ Vector3f Realtime::TraceRay(Ray& ray)
 			break;
 		}
 
-		W = W.cwiseProduct(f / p);
+		W = W.cwiseProduct(f) / p;
 
 		if (Q.object->material->isLight())
 		{
 			C += W.cwiseProduct(EvalRadiance(Q));
+			break;
 		}
 
 		P = Q;
 	}
 
 	return C;
+}
+
+Intersection Realtime::SampleLight()
+{
+	Obj* light = *select_randomly(lights.begin(),lights.end());
+	Sphere* sphere = static_cast<Sphere*>(light->shape);
+	return SampleSphere(sphere->center, sphere->radius, light);
+}
+
+Intersection Realtime::SampleSphere(Vector3f center, float radius, Obj* light)
+{
+	float psi1 = myrandom(RNGen);
+	float psi2 = myrandom(RNGen);
+
+	float z = 2 * psi1 - 1;
+	float r = sqrt(1 - z * z);
+	float a = 2 * PI * psi2;
+
+	Vector3f normal = Vector3f(radius * std::cos(a), radius * std::sin(a), z);
+	Vector3f point = center + radius * normal;
+	return Intersection(light, point, normal);
+}
+
+float Realtime::PdfLight(Intersection& L)
+{
+	Sphere* s = static_cast<Sphere*>(L.object->shape);
+	return 1.0f / (4 * PI * s->radius * s->radius * lights.size());
+}
+
+float Realtime::GeometryFactor(Intersection& P, Intersection& L)
+{
+	Vector3f D = P.P - L.P;
+	float D_dot_D = D.dot(D);
+	return std::max(P.N.dot(D) * L.N.dot(D) / (D_dot_D * D_dot_D),0.0f);
 }
 
 Vector3f Realtime::SampleBrdf(Vector3f N)
@@ -462,12 +513,12 @@ Vector3f Realtime::SampleLobe(Vector3f N, float c, float fi)
 
 Vector3f Realtime::EvalScattering(Vector3f N, Vector3f wi, Vector3f Kd)
 {
-	return fabs(N.dot(wi)) * Kd / PI;
+	return std::max(0.0f,N.dot(wi)) * Kd / PI;
 }
 
 float Realtime::PdfBrdf(Vector3f N, Vector3f wi)
 {
-	return N.dot(wi) / PI;
+	return std::max(0.0f, N.dot(wi)) / PI;
 }
 
 Vector3f Realtime::EvalRadiance(Intersection& Q)
@@ -620,8 +671,8 @@ void Realtime::DrawOutput()
 			fprintf(stderr, "Rendering %4d\r", y);
 			for (int x = 0; x < width; x++) {
 
-				float dx = 2 * (x + 0.5f) / width - 1;
-				float dy = 2 * (y + 0.5f) / height - 1;
+				float dx = 2 * (x + myrandom(RNGen)) / width - 1;
+				float dy = 2 * (y + myrandom(RNGen)) / height - 1;
 
 				/*Color color;
 				if ((x - width / 2) * (x - width / 2) + (y - height / 2) * (y - height / 2) < 100 * 100)
@@ -633,49 +684,53 @@ void Realtime::DrawOutput()
 				Vector3f dir = dx * X + dy * Y + Z;
 				Ray ray(E, dir.normalized());
 				Vector3f test = imagePointer[y * width + x];
-				test += TraceRay(ray)/pass;
+				test += TraceRay(ray);
 				imagePointer[y * width + x] = test;
 			}
 
 		}
 
-		//if(pass == 1 || pass == 8 || pass == 64 || pass == 512 )
-		{
-			std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::high_resolution_clock::now();
-			std::chrono::duration<float> duration = end - start;
+		
+		std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<float> duration = end - start;
 
-			float ms = duration.count() * 1000.0f;
-			printf("Execution Time: %f ms", ms);
+		float ms = duration.count() * 1000.0f;
+		printf("Execution Time: %f ms", ms);
 
-			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			raytraceout.Use();
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		raytraceout.Use();
 
-			glGenTextures(1, &imageTexture);
-			glActiveTexture(GL_TEXTURE1);
-			glBindTexture(GL_TEXTURE_2D, imageTexture);
+		glGenTextures(1, &imageTexture);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, imageTexture);
 
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
 
-			glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
-			glGenerateMipmap(GL_TEXTURE_2D);
+		glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
+		glGenerateMipmap(GL_TEXTURE_2D);
 
-			int loc = glGetUniformLocation(raytraceout.program, "imageTex");
-			glUniform1i(loc, 1);
+		int loc = glGetUniformLocation(raytraceout.program, "imageTex");
+		glUniform1i(loc, 1);
+		loc = glGetUniformLocation(raytraceout.program, "pass");
+		glUniform1i(loc, pass);
 
-			DrawFSQ();
-			raytraceout.Unuse();
-			glutSwapBuffers();
-			//WriteHdrImage("Raycast_"+ std::to_string(pass) + ".hdr", width, height, imagePointer);
-			printf("Written to HDR file\n");
-			fprintf(stderr, "\n");
-		}
+		DrawFSQ();
+		raytraceout.Unuse();
+		glutSwapBuffers();
+		
+		
 		printf("Pass %d\n",pass);
 		fprintf(stderr, "\n");
 	}
+	
+	WriteHdrImage("Raycast_64.hdr", width, height, imagePointer);
+	printf("Written to HDR file\n");
+	glutLeaveMainLoop();
+	fprintf(stderr, "\n");
 }
 
 void Realtime::DrawFSQ()
@@ -827,6 +882,7 @@ void Realtime::sphere(const Vector3f center, const float r, Material* mat)
     objs.push_back(obj);
 	Sphere* sphere = new Sphere(center, r);
 	sphere->object = obj;
+	obj->shape = sphere;
 	shapes.push_back(sphere);
     if (mat->isLight())
         lights.push_back(obj);
@@ -839,6 +895,7 @@ void Realtime::box(const Vector3f base, const Vector3f diag, Material* mat)
     objs.push_back(obj);
 	Box* box = new Box(base, diag);
 	box->object = obj;
+	obj->shape = box;
 	shapes.push_back(box);
     if (mat->isLight())
         lights.push_back(obj);
@@ -867,6 +924,7 @@ void Realtime::cylinder(const Vector3f base, const Vector3f axis, const float ra
     objs.push_back(obj);
 	Cylinder* cylinder = new Cylinder(base,axis,radius);
 	cylinder->object = obj;
+	obj->shape = cylinder;
 	shapes.push_back(cylinder);
     if (mat->isLight())
         lights.push_back(obj);

@@ -5,7 +5,7 @@
 
 using namespace Eigen;
 
-const float Epsilon = 0.000001;
+const float Epsilon = 0.0001;
 
 Interval::Interval() : t0(0.0f), t1(std::numeric_limits<float>::max())
 {
@@ -102,16 +102,16 @@ bool Sphere::Intersect(Ray ray, Intersection& data)
 	float pT = -QbarD + sqrval;
 	float nT = -QbarD - sqrval;
 
-	if (pT < Epsilon && nT < Epsilon)
+	if (pT < 0.0f && nT < 0.0f)
 	{
 		return false; // No intersection
 	}
-	float t;
-	if (pT < nT)
+	float t = std::numeric_limits<float>::max();
+	if (pT < nT && pT > Epsilon)
 	{
 		t = pT;
 	}
-	else
+	else if(pT > nT && nT > Epsilon)
 	{
 		t = nT;
 	}
@@ -148,7 +148,38 @@ Box::Box(Vector3f c, Vector3f d) : corner(c), diagonal(d)
 bool Box::Intersect(Ray ray, Intersection& data)
 {
 	Interval interval;
-	return IntersectBoundingBox(ray, data, interval);
+	for (int i = 0; i < 3; ++i)
+	{
+		interval.Intersect(ray, slabs[i]);
+	}
+
+	if (interval.t0 > interval.t1 || (interval.t0 < 0.0f && interval.t1 < 0.0f))
+	{
+		return false; // No intersection
+	}
+	float t = std::numeric_limits<float>::max();
+	Vector3f normal;
+	if (interval.t0 <= interval.t1 && interval.t0 > Epsilon)
+	{
+		t = interval.t0;
+		normal = interval.N0;
+	}
+	else if (interval.t1 <= interval.t0 && interval.t1 > Epsilon)
+	{
+		t = interval.t1;
+		normal = interval.N1;
+	}
+	Vector3f point = ray.Evaluate(t);
+	Vector2f uv = Vector2f(0, 0);
+	data.update(t, point, normal, uv, object);
+	if (t == std::numeric_limits<float>::max())
+	{
+		return false;
+	}
+	else
+	{
+		return true;
+	}
 }
 
 bool Box::IntersectBoundingBox(Ray ray, Intersection& data, Interval& interval)
@@ -158,18 +189,18 @@ bool Box::IntersectBoundingBox(Ray ray, Intersection& data, Interval& interval)
 		interval.Intersect(ray, slabs[i]);
 	}
 
-	if (interval.t0 > interval.t1 || (interval.t0 < Epsilon && interval.t1 < Epsilon))
+	if (interval.t0 > interval.t1 || (interval.t0 < 0.0f && interval.t1 < 0.0f))
 	{
 		return false; // No intersection
 	}
-	float t;
+	float t = std::numeric_limits<float>::max();
 	Vector3f normal;
-	if (interval.t0 < interval.t1 && interval.t0 > Epsilon)
+	if (interval.t0 <= interval.t1 && interval.t0 >= 0.0f)
 	{
 		t = interval.t0;
 		normal = interval.N0;
 	}
-	else
+	else if(interval.t1 < interval.t0 && interval.t1 >= 0.0f)
 	{
 		t = interval.t1;
 		normal = interval.N1;
@@ -177,7 +208,14 @@ bool Box::IntersectBoundingBox(Ray ray, Intersection& data, Interval& interval)
 	Vector3f point = ray.Evaluate(t);
 	Vector2f uv = Vector2f(0, 0);
 	data.update(t, point, normal, uv, object);
-	return true;
+	if(t == std::numeric_limits<float>::max())
+	{
+		return false;		
+	}
+	else
+	{
+		return true;
+	}
 }
 
 Bbox Box::Bounding_Box() const
@@ -244,14 +282,14 @@ bool Cylinder::Intersect(Ray ray, Intersection& data)
 	{
 		return false; // No Intersection, The "off the corner" case
 	}
-	float t;
+	float t = std::numeric_limits<float>::max();
 	Vector3f t_normal;
 	if (interval.t0 < interval.t1 && interval.t0 > Epsilon)
 	{
 		t = interval.t0;
 		t_normal = interval.N0;
 	}
-	else
+	else if(interval.t1 < interval.t0 && interval.t1 > Epsilon)
 	{
 		t = interval.t1;
 		t_normal = interval.N1;
@@ -267,7 +305,14 @@ bool Cylinder::Intersect(Ray ray, Intersection& data)
 	float theta = atan2(t_normal.y(), t_normal.x());
 	Vector2f uv = Vector2f(theta / (2 * PI), t_normal.z() / axis.norm());
 	data.update(t, point, normal, uv,object);
-	return true;
+	if (t == std::numeric_limits<float>::max())
+	{
+		return false;
+	}
+	else
+	{
+		return true;
+	}
 }
 
 Bbox Cylinder::Bounding_Box() const
@@ -378,7 +423,7 @@ void Intersection::update(float tvalue, Vector3f P, Vector3f N, Vector2f UV, Obj
 	{
 		this->t = tvalue;
 		this->P = P;
-		this->N = N;
+		this->N = N.normalized();
 		this->UV = UV;
 		this->object = obj;
 	}
