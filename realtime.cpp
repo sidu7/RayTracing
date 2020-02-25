@@ -381,7 +381,7 @@ void Realtime::run(Color* image, int pass)
 	
 	Tree.init(shapes.begin(), shapes.end());
 	
-	max_passes = 64;
+	max_passes = 512;
 
     cDist = eye.norm();
 	imagePointer = image;
@@ -477,7 +477,7 @@ Intersection Realtime::SampleSphere(Vector3f center, float radius, Obj* light)
 	float r = sqrt(1 - z * z);
 	float a = 2 * PI * psi2;
 
-	Vector3f normal = Vector3f(radius * std::cos(a), radius * std::sin(a), z);
+	Vector3f normal = Vector3f(r * cos(a), r * sin(a), z);
 	Vector3f point = center + radius * normal;
 	return Intersection(light, point, normal);
 }
@@ -492,7 +492,7 @@ float Realtime::GeometryFactor(Intersection& P, Intersection& L)
 {
 	Vector3f D = P.P - L.P;
 	float D_dot_D = D.dot(D);
-	return std::max(P.N.dot(D) * L.N.dot(D) / (D_dot_D * D_dot_D),0.0f);
+	return fabs(P.N.dot(D) * L.N.dot(D) / (D_dot_D * D_dot_D));
 }
 
 Vector3f Realtime::SampleBrdf(Vector3f N)
@@ -722,13 +722,16 @@ void Realtime::DrawOutput()
 		raytraceout.Unuse();
 		glutSwapBuffers();
 		
+		if (pass == 1 || pass == 8 || pass == 64 || pass == 512)
+		{
+			WriteHdrImage("Raycast_"+ std::to_string(pass) + "_both.hdr", width, height, imagePointer);
+			printf("Written to HDR file\n");
+		}
 		
 		printf("Pass %d\n",pass);
 		fprintf(stderr, "\n");
 	}
 	
-	WriteHdrImage("Raycast_64.hdr", width, height, imagePointer);
-	printf("Written to HDR file\n");
 	glutLeaveMainLoop();
 	fprintf(stderr, "\n");
 }
