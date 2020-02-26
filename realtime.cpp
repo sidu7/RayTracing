@@ -420,9 +420,9 @@ Vector3f Realtime::TraceRay(Ray& ray)
 		Minimizer mini3(new_ray3, &I);
 		BVMinimize(Tree, mini3);
 		
-		if(p_some > 0.0f && I.object != nullptr && I.object == L.object && I.P == L.P)
+		if(p_some > 0.0f && I.object != nullptr && I.object == L.object && (I.P - L.P).norm() < 0.0001)
 		{
-			Vector3f ff = EvalScattering(N, wiL, L.object->material->Kd);
+			Vector3f ff = EvalScattering(N, wiL, P.object->material->Kd);
 			C += W.cwiseProduct((ff / p_some).cwiseProduct(EvalRadiance(L)));
 		}
 
@@ -724,7 +724,7 @@ void Realtime::DrawOutput()
 		
 		if (pass == 1 || pass == 8 || pass == 64 || pass == 512)
 		{
-			WriteHdrImage("Raycast_"+ std::to_string(pass) + "_both.hdr", width, height, imagePointer);
+			WriteHdrImage("Raycast_"+ std::to_string(pass) + "_implicit.hdr", width, height, imagePointer);
 			printf("Written to HDR file\n");
 		}
 		
