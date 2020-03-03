@@ -130,10 +130,13 @@ public:
 	void run(Color* image, int pass);
 
 	Vector3f TraceRay(Ray& ray);
-	Vector3f SampleBrdf(Vector3f N);
+	Vector3f SampleBrdf(Vector3f wo, Vector3f N, Material* mat, float pd);
 	Vector3f SampleLobe(Vector3f N, float c, float fi);
-	Vector3f EvalScattering(Vector3f N, Vector3f wi, Vector3f Kd);
-	float PdfBrdf(Vector3f N, Vector3f wi);
+	Vector3f EvalScattering(Vector3f wo, Vector3f N, Vector3f wi, Material* mat);
+	float PdfBrdf(Vector3f wo, Vector3f N, Vector3f wi, float pd, float pr, float alpha);
+	float DTerm(Vector3f m, Vector3f N, float alpha);
+	float GTerm(Vector3f v, Vector3f m, Vector3f N,float alpha);
+	Vector3f FTerm(float LdotH, Material* mat);
 	Vector3f EvalRadiance(Intersection& Q);
 	Intersection SampleLight();
 	Intersection SampleSphere(Vector3f center, float radius, Obj* light);
