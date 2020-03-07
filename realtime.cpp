@@ -381,7 +381,7 @@ void Realtime::run(Color* image, int pass)
 	
 	Tree.init(shapes.begin(), shapes.end());
 	
-	max_passes = 64;
+	max_passes = 2048;
 
     cDist = eye.norm();
 	imagePointer = image;
@@ -517,7 +517,11 @@ Vector3f Realtime::SampleBrdf(Vector3f wo, Vector3f N, Material* mat, float pd)
 	}
 	// Choose Reflection
 
-	//float cosTm = cos(atan(mat->alpha * sqrt(psi1) / sqrt(1 - psi1)));
+	// GGX
+	//float alpha = sqrt(2.0f / (mat->alpha + 2.0f));
+	//float cosTm = cos(atan(alpha * sqrt(psi1) / sqrt(1 - psi1)));
+
+	// Phong
 	float cosTm = pow(psi1, 1 / (mat->alpha + 1));
 
 	Vector3f m = SampleLobe(N, cosTm, 2 * PI * psi2);
@@ -540,14 +544,14 @@ Vector3f Realtime::EvalScattering(Vector3f wo, Vector3f N, Vector3f wi, Material
 	Vector3f m = (wo + wi).normalized();
 	float G = GTerm(wi, m, N, mat->alpha) * GTerm(wo, m, N, mat->alpha);
 
-	Vector3f Er = DTerm(m, N, mat->alpha) * G * FTerm(wi.dot(N),mat) / (4 * fabs(N.dot(wi)) * fabs(N.dot(wo)));
+	Vector3f Er = DTerm(m, N, mat->alpha) * G * FTerm(wi.dot(m), mat) / (4 * fabs(N.dot(wi)) * fabs(N.dot(wo)));
 	
-	return std::max(0.0f,N.dot(wi)) * (Ed + Er);
+	return fabs(N.dot(wi)) * (Ed + Er);
 }
 
 float Realtime::PdfBrdf(Vector3f wo, Vector3f N, Vector3f wi, float pd, float pr, float alpha)
 {
-	float Pdiff = std::max(0.0f, N.dot(wi)) / PI;
+	float Pdiff = fabs(N.dot(wi)) / PI;
 
 	Vector3f m = (wo + wi).normalized();
 	float Pref = DTerm(m, N, alpha) * fabs(N.dot(m)) / (4 * fabs(m.dot(wi)));
@@ -560,11 +564,19 @@ float Realtime::DTerm(Vector3f m, Vector3f N, float alpha)
 	float mDotN = m.dot(N);
 	int X = mDotN > 0 ? 1 : 0;
 
-	/*float tanTm = sqrt(1.0f - mDotN * mDotN) / mDotN;
+	float tanTm = sqrt(1.0f - mDotN * mDotN) / mDotN;
 
-	return X * alpha * alpha / (PI * pow(mDotN, 4) * pow(alpha * alpha + tanTm * tanTm, 2));*/
+	if(tanTm == 0.0f || isnan(tanTm) || mDotN == 0.0f)
+	{
+		return 1.0f;
+	}
+	
+	//GGX
+	//alpha = sqrt(2.0f / (alpha + 2.0f));
+	//return X * ((alpha * alpha) / (PI * pow(mDotN, 4) * pow(alpha * alpha + tanTm * tanTm, 2)));
 
-	return X * (alpha + 2 / (2 * PI)) * pow(mDotN, alpha);
+	// Phong
+	return X * ((alpha + 2) / (2 * PI)) * pow(mDotN, alpha);
 }
 
 float Realtime::GTerm(Vector3f v, Vector3f m, Vector3f N, float alpha)
@@ -573,20 +585,29 @@ float Realtime::GTerm(Vector3f v, Vector3f m, Vector3f N, float alpha)
 	int X = d > 0 ? 1 : 0;
 
 	float vDotN = v.dot(N);
+	
+	if(vDotN == 0.0f)
+	{
+		return 1.0f;
+	}
+	
 	float tanTv = sqrt(1.0f - vDotN * vDotN) / vDotN;
 
-	if (vDotN > 1.0f || tanTv == 0.0f)
+	if (vDotN > 1.0f || tanTv == 0.0f || isnan(tanTv))
 	{
 		return 1.0f;
 	}
 
+	// GGX
+	//alpha = sqrt(2.0f / (alpha + 2.0f));
 	//return X * 2.0f / (1.0f + sqrt(1.0f + alpha * alpha * tanTv * tanTv));
 
+	// Phong
 	float a = sqrt(alpha / 2 + 1) / tanTv;
 
 	if (a < 1.6f)
 	{
-		return X * 3.535f * a + 2.181f * a * a / (1.0f + 2.276f * a + 2.577f * a * a);
+		return X * (3.535f * a + 2.181f * a * a) / (1.0f + 2.276f * a + 2.577f * a * a);
 	}
 	else
 	{
@@ -740,14 +761,14 @@ void Realtime::DrawOutput()
 	Vector3f Y = ry * o._transformVector(Vector3f::UnitY());
 	Vector3f Z = -1 * o._transformVector(Vector3f::UnitZ());
 
-	std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::high_resolution_clock::now();
+	//std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::high_resolution_clock::now();
 	
 	for (int pass = 1; pass <= max_passes; ++pass)
 	{
 #pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
 		for (int y = 0; y < height; y++) {
 
-			fprintf(stderr, "Rendering %4d\r", y);
+			//fprintf(stderr, "Rendering %4d\r", y);
 			for (int x = 0; x < width; x++) {
 
 				float dx = 2 * (x + myrandom(RNGen)) / width - 1;
@@ -770,45 +791,45 @@ void Realtime::DrawOutput()
 		}
 
 		
-		std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::high_resolution_clock::now();
-		std::chrono::duration<float> duration = end - start;
-
-		float ms = duration.count() * 1000.0f;
-		printf("Execution Time: %f ms", ms);
-
-		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		raytraceout.Use();
-
-		glGenTextures(1, &imageTexture);
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, imageTexture);
-
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
-
-		glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
-		glGenerateMipmap(GL_TEXTURE_2D);
-
-		int loc = glGetUniformLocation(raytraceout.program, "imageTex");
-		glUniform1i(loc, 1);
-		loc = glGetUniformLocation(raytraceout.program, "pass");
-		glUniform1i(loc, pass);
-
-		DrawFSQ();
-		raytraceout.Unuse();
-		glutSwapBuffers();
-		
+		//std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::high_resolution_clock::now();
+		//std::chrono::duration<float> duration = end - start;
+		//
+		//float ms = duration.count() * 1000.0f;
+		//printf("Execution Time: %f ms", ms);
 		if (pass == 1 || pass == 8 || pass == 64 || pass == 512 || pass == 2048 || pass == 4096)
 		{
-			WriteHdrImage("Raycast_"+ std::to_string(pass) + "_reflection.hdr", width, height, imagePointer);
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			raytraceout.Use();
+
+			glGenTextures(1, &imageTexture);
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, imageTexture);
+
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR_MIPMAP_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+
+			glTexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, &imagePointer[0]);
+			glGenerateMipmap(GL_TEXTURE_2D);
+
+			int loc = glGetUniformLocation(raytraceout.program, "imageTex");
+			glUniform1i(loc, 1);
+			loc = glGetUniformLocation(raytraceout.program, "pass");
+			glUniform1i(loc, pass);
+
+			DrawFSQ();
+			raytraceout.Unuse();
+			glutSwapBuffers();
+
+
+			WriteHdrImage("Raycast_" + std::to_string(pass) + "_reflection_phong.hdr", width, height, imagePointer);
 			printf("Written to HDR file\n");
 		}
 		
-		printf("Pass %d\n",pass);
-		fprintf(stderr, "\n");
+		//printf("Pass %d\n",pass);
+		//fprintf(stderr, "\n");
 	}
 	
 	glutLeaveMainLoop();
