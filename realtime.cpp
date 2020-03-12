@@ -381,7 +381,7 @@ void Realtime::run(Color* image, int pass)
 	
 	Tree.init(shapes.begin(), shapes.end());
 	
-	max_passes = 2048;
+	max_passes = 4096;
 
     cDist = eye.norm();
 	imagePointer = image;
@@ -399,7 +399,6 @@ Vector3f Realtime::TraceRay(Ray& ray)
 	Minimizer minimizer(ray, &P);
 	BVMinimize(Tree, minimizer);
 
-	Vector3f N = P.N;
 	if (P.object == nullptr)
 	{
 		return C;
@@ -411,29 +410,32 @@ Vector3f Realtime::TraceRay(Ray& ray)
 
 	while (myrandom(RNGen) <= RussianRoulette)
 	{
-		// Explicit
-		Intersection L = SampleLight();
-		float p_some = PdfLight(L) / GeometryFactor(P, L);
-		Vector3f wiL = (L.P - P.P).normalized();
-		Ray new_ray3(P.P, wiL);
-		Intersection I;
-		Minimizer mini3(new_ray3, &I);
-		BVMinimize(Tree, mini3);
-		
-		if(p_some > 0.0f && I.object != nullptr && I.object == L.object && (I.P - L.P).norm() < 0.0001)
-		{
-			Vector3f ff = EvalScattering(wo, N, wiL, P.object->material);
-			C += W.cwiseProduct((ff / p_some).cwiseProduct(EvalRadiance(L)));
-		}
-
-		// Implicit
+		Vector3f N = P.N.normalized();
 		float kd = P.object->material->Kd.norm();
 		float ks = P.object->material->Ks.norm();
 		float s = kd + ks;
 		float pd = kd / s;
 		float pr = ks / s;
-		// Check here 
+		
+		// Explicit
+		Intersection L = SampleLight();
+		float p_some = PdfLight(L) / GeometryFactor(P, L);
+		Vector3f wiL = (L.P - P.P).normalized();
+		Ray new_ray3(P.P, wiL);
+		float q_some = PdfBrdf(wo, N, wiL, pd, pr, P.object->material->alpha) * RussianRoulette;
+		float w_mis = p_some * p_some / (p_some * p_some + q_some * q_some);
+		
+		Intersection I;
+		Minimizer mini3(new_ray3, &I);
+		BVMinimize(Tree, mini3);
+		
+		if(p_some > 0.0f && I.object != nullptr && I.object == L.object)
+		{
+			Vector3f ff = EvalScattering(wo, N, wiL, P.object->material);
+			C += W.cwiseProduct((ff * w_mis / p_some).cwiseProduct(EvalRadiance(L)));
+		}
 
+		// Implicit		
 		Vector3f wi = SampleBrdf(wo,N,P.object->material, pd);
 		wi.normalize();
 		Ray new_ray(P.P, wi);
@@ -458,7 +460,9 @@ Vector3f Realtime::TraceRay(Ray& ray)
 
 		if (Q.object->material->isLight())
 		{
-			C += W.cwiseProduct(EvalRadiance(Q));
+			float q = PdfLight(Q) / GeometryFactor(P, Q);
+			w_mis = p * p / (p * p + q * q);
+			C += W.cwiseProduct(w_mis * EvalRadiance(Q));
 			break;
 		}
 
@@ -563,20 +567,15 @@ float Realtime::DTerm(Vector3f m, Vector3f N, float alpha)
 {
 	float mDotN = m.dot(N);
 	int X = mDotN > 0 ? 1 : 0;
-
-	float tanTm = sqrt(1.0f - mDotN * mDotN) / mDotN;
-
-	if(tanTm == 0.0f || isnan(tanTm) || mDotN == 0.0f)
-	{
-		return 1.0f;
-	}
 	
+	float tanTm = sqrt(fabs(1.0f - mDotN * mDotN)) / mDotN;
+
 	//GGX
 	//alpha = sqrt(2.0f / (alpha + 2.0f));
 	//return X * ((alpha * alpha) / (PI * pow(mDotN, 4) * pow(alpha * alpha + tanTm * tanTm, 2)));
 
 	// Phong
-	return X * ((alpha + 2) / (2 * PI)) * pow(mDotN, alpha);
+	return ((alpha + 2) / (2 * PI)) * pow(mDotN, alpha);
 }
 
 float Realtime::GTerm(Vector3f v, Vector3f m, Vector3f N, float alpha)
@@ -586,14 +585,14 @@ float Realtime::GTerm(Vector3f v, Vector3f m, Vector3f N, float alpha)
 
 	float vDotN = v.dot(N);
 	
-	if(vDotN == 0.0f)
+	if(vDotN > 1.0f)
 	{
 		return 1.0f;
 	}
 	
 	float tanTv = sqrt(1.0f - vDotN * vDotN) / vDotN;
 
-	if (vDotN > 1.0f || tanTv == 0.0f || isnan(tanTv))
+	if (tanTv == 0.0f)
 	{
 		return 1.0f;
 	}
@@ -604,7 +603,7 @@ float Realtime::GTerm(Vector3f v, Vector3f m, Vector3f N, float alpha)
 
 	// Phong
 	float a = sqrt(alpha / 2 + 1) / tanTv;
-
+	
 	if (a < 1.6f)
 	{
 		return X * (3.535f * a + 2.181f * a * a) / (1.0f + 2.276f * a + 2.577f * a * a);
@@ -618,7 +617,7 @@ float Realtime::GTerm(Vector3f v, Vector3f m, Vector3f N, float alpha)
 
 Vector3f Realtime::FTerm(float LdotH, Material* mat)
 {
-	return mat->Ks + (Vector3f(1.0f, 1.0f, 1.0f) - mat->Ks) * pow(1.0f - std::max(LdotH, 0.0f), 5);
+	return mat->Ks + (Vector3f(1.0f, 1.0f, 1.0f) - mat->Ks) * pow(1.0f - fabs(LdotH), 5);
 }
 
 Vector3f Realtime::EvalRadiance(Intersection& Q)
@@ -783,9 +782,15 @@ void Realtime::DrawOutput()
 					color = Color(1.0, 1.0, 1.0);*/
 				Vector3f dir = dx * X + dy * Y + Z;
 				Ray ray(E, dir.normalized());
+				
 				Vector3f test = imagePointer[y * width + x];
 				test += TraceRay(ray);
-				imagePointer[y * width + x] = test;
+				if (!(isnan(test.x()) || isinf(test.x()) ||
+					isnan(test.y()) || isinf(test.y()) || 
+					isnan(test.z()) || isinf(test.z())))
+				{
+					imagePointer[y * width + x] = test;
+				}
 			}
 
 		}
