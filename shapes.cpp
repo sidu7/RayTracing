@@ -115,6 +115,14 @@ bool Sphere::Intersect(Ray ray, Intersection& data)
 	{
 		t = nT;
 	}
+	else if (pT > 0.0f && pT > Epsilon)
+	{
+		t = pT;
+	}
+	else if(nT > 0.0f && nT > Epsilon)
+	{
+		t = nT;
+	}
 	Vector3f point = ray.Evaluate(t);
 	Vector3f normal = (point - center).normalized();
 	float theta = atan2f(normal.dot(Vector3f(0.0f, 1.0f, 0.0f)), normal.dot(Vector3f(1.0f, 0.0f, 0.0f)));

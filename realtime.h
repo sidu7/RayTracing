@@ -130,10 +130,10 @@ public:
 	void run(Color* image, int pass);
 
 	Vector3f TraceRay(Ray& ray);
-	Vector3f SampleBrdf(Vector3f wo, Vector3f N, Material* mat, float pd);
+	Vector3f SampleBrdf(Vector3f wo, Vector3f N, Material* mat, float pd, float pr);
 	Vector3f SampleLobe(Vector3f N, float c, float fi);
-	Vector3f EvalScattering(Vector3f wo, Vector3f N, Vector3f wi, Material* mat);
-	float PdfBrdf(Vector3f wo, Vector3f N, Vector3f wi, float pd, float pr, float alpha);
+	Vector3f EvalScattering(Vector3f wo, Vector3f N, Vector3f wi, Material* mat, float t);
+	float PdfBrdf(Vector3f wo, Vector3f N, Vector3f wi, float pd, float pr, float pt, Material* mat);
 	float DTerm(Vector3f m, Vector3f N, float alpha);
 	float GTerm(Vector3f v, Vector3f m, Vector3f N,float alpha);
 	Vector3f FTerm(float LdotH, Material* mat);

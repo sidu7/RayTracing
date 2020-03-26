@@ -413,30 +413,32 @@ Vector3f Realtime::TraceRay(Ray& ray)
 		Vector3f N = P.N.normalized();
 		float kd = P.object->material->Kd.norm();
 		float ks = P.object->material->Ks.norm();
-		float s = kd + ks;
+		float kt = P.object->material->Kt.norm();
+		float s = kd + ks + kt;
 		float pd = kd / s;
 		float pr = ks / s;
+		float pt = kt / s;
 		
 		// Explicit
 		Intersection L = SampleLight();
 		float p_some = PdfLight(L) / GeometryFactor(P, L);
 		Vector3f wiL = (L.P - P.P).normalized();
 		Ray new_ray3(P.P, wiL);
-		float q_some = PdfBrdf(wo, N, wiL, pd, pr, P.object->material->alpha) * RussianRoulette;
+		float q_some = PdfBrdf(wo, N, wiL, pd, pr, pt, P.object->material) * RussianRoulette;
 		float w_mis = p_some * p_some / (p_some * p_some + q_some * q_some);
-		
+
 		Intersection I;
 		Minimizer mini3(new_ray3, &I);
 		BVMinimize(Tree, mini3);
 		
 		if(p_some > 0.0f && I.object != nullptr && I.object == L.object)
 		{
-			Vector3f ff = EvalScattering(wo, N, wiL, P.object->material);
+			Vector3f ff = EvalScattering(wo, N, wiL, P.object->material,P.t);
 			C += W.cwiseProduct((ff * w_mis / p_some).cwiseProduct(EvalRadiance(L)));
 		}
 
 		// Implicit		
-		Vector3f wi = SampleBrdf(wo,N,P.object->material, pd);
+		Vector3f wi = SampleBrdf(wo,N,P.object->material, pd, pr);
 		wi.normalize();
 		Ray new_ray(P.P, wi);
 		Intersection Q;
@@ -448,8 +450,8 @@ Vector3f Realtime::TraceRay(Ray& ray)
 			break;
 		}
 
-		Vector3f f = EvalScattering(wo,N, wi,P.object->material);
-		float p = PdfBrdf(wo, N, wi,pd,pr, P.object->material->alpha) * RussianRoulette;
+		Vector3f f = EvalScattering(wo,N, wi,P.object->material, P.t);
+		float p = PdfBrdf(wo, N, wi,pd,pr, pt, P.object->material) * RussianRoulette;
 
 		if (p < Epsilon)
 		{
@@ -507,7 +509,7 @@ float Realtime::GeometryFactor(Intersection& P, Intersection& L)
 	return fabs(P.N.dot(D) * L.N.dot(D) / (D_dot_D * D_dot_D));
 }
 
-Vector3f Realtime::SampleBrdf(Vector3f wo, Vector3f N, Material* mat, float pd)
+Vector3f Realtime::SampleBrdf(Vector3f wo, Vector3f N, Material* mat, float pd, float pr)
 {
 	float psi1 = myrandom(RNGen);
 	float psi2 = myrandom(RNGen);
@@ -519,8 +521,7 @@ Vector3f Realtime::SampleBrdf(Vector3f wo, Vector3f N, Material* mat, float pd)
 	{
 		return SampleLobe(N, sqrt(psi1), 2 * PI * psi2);
 	}
-	// Choose Reflection
-
+	
 	// GGX
 	//float alpha = sqrt(2.0f / (mat->alpha + 2.0f));
 	//float cosTm = cos(atan(alpha * sqrt(psi1) / sqrt(1 - psi1)));
@@ -529,8 +530,27 @@ Vector3f Realtime::SampleBrdf(Vector3f wo, Vector3f N, Material* mat, float pd)
 	float cosTm = pow(psi1, 1 / (mat->alpha + 1));
 
 	Vector3f m = SampleLobe(N, cosTm, 2 * PI * psi2);
+	
+	// Choose Reflection
+	if (cpsi < pd + pr)
+	{
+		return 2.0f * wo.dot(m) * m - wo;
+	}
+	
+	// Choose Transmission
 
-	return 2.0f * wo.dot(m) * m - wo;
+	float eta = wo.dot(N) > 0 ? 1.0f/mat->ior : mat->ior;
+	
+	float r = 1 - eta * eta * (1 - pow(wo.dot(m), 2));
+	
+	if(r < 0.0f) // total internal reflection
+	{
+		return 2.0f * wo.dot(m) * m - wo;
+	}
+	
+	float sign = wo.dot(N) >= 0 ? 1 : -1;
+	
+	return (eta * wo.dot(m) - sign * sqrt(r)) * m - eta * wo;
 }
 
 Vector3f Realtime::SampleLobe(Vector3f N, float c, float fi)
@@ -541,7 +561,7 @@ Vector3f Realtime::SampleLobe(Vector3f N, float c, float fi)
 	return q._transformVector(K);
 }
 
-Vector3f Realtime::EvalScattering(Vector3f wo, Vector3f N, Vector3f wi, Material* mat)
+Vector3f Realtime::EvalScattering(Vector3f wo, Vector3f N, Vector3f wi, Material* mat, float t)
 {
 	Vector3f Ed = mat->Kd / PI;
 
@@ -549,18 +569,82 @@ Vector3f Realtime::EvalScattering(Vector3f wo, Vector3f N, Vector3f wi, Material
 	float G = GTerm(wi, m, N, mat->alpha) * GTerm(wo, m, N, mat->alpha);
 
 	Vector3f Er = DTerm(m, N, mat->alpha) * G * FTerm(wi.dot(m), mat) / (4 * fabs(N.dot(wi)) * fabs(N.dot(wo)));
+	Vector3f At = Vector3f(1.0f,1.0f,1.0f);
 	
-	return fabs(N.dot(wi)) * (Ed + Er);
+	float etao, etai;
+
+	if (wo.dot(N) > 0)
+	{
+		etai = 1.0f;	etao = mat->ior;
+	}
+	else
+	{
+		etao = 1.0f;	etai = mat->ior;
+	}
+
+	if(wo.dot(N) < 0)
+	{
+		//At = Vector3f(exp(t * log(mat->Kt.x())), exp(t * log(mat->Kt.y())), exp(t * log(mat->Kt.z())));
+		At = Vector3f(pow(mat->Kt.x(),t), pow(mat->Kt.y(), t), pow(mat->Kt.z(), t));
+	}
+	
+	float eta = etai / etao;
+	m = -(etao * wi + etai * wo).normalized();
+	float r = 1 - eta * eta * (1 - pow(wo.dot(m), 2));
+	Vector3f Et;
+	if (r < 0.0f)
+	{
+		Et = At.cwiseProduct(Er);
+	}
+	else
+	{
+		float Gt = GTerm(wi, m, N, mat->alpha) * GTerm(wo, m, N, mat->alpha);
+		Vector3f numerator = DTerm(m, N, mat->alpha) * Gt * (Vector3f(1.0f, 1.0f, 1.0f) - FTerm(wi.dot(m), mat)) * fabs(wi.dot(m)) * fabs(wo.dot(m)) * etao * etao;
+		float denominator = fabs(N.dot(wi)) * fabs(N.dot(wo)) * pow(etao * wi.dot(m) + etai * wo.dot(m), 2);
+		Et = At.cwiseProduct(numerator) / denominator;
+	}
+	
+	return fabs(N.dot(wi)) * (Ed + Er + Et);
 }
 
-float Realtime::PdfBrdf(Vector3f wo, Vector3f N, Vector3f wi, float pd, float pr, float alpha)
+float Realtime::PdfBrdf(Vector3f wo, Vector3f N, Vector3f wi, float pd, float pr, float pt, Material* mat)
 {
+	// Diffuse
 	float Pdiff = fabs(N.dot(wi)) / PI;
 
+	// Reflection
 	Vector3f m = (wo + wi).normalized();
-	float Pref = DTerm(m, N, alpha) * fabs(N.dot(m)) / (4 * fabs(m.dot(wi)));
+	float Pref = DTerm(m, N, mat->alpha) * fabs(N.dot(m)) / (4 * fabs(m.dot(wi)));
 
-	return pd * Pdiff + pr*Pref;
+	// Transmission
+	float etao, etai;
+
+	if(wo.dot(N) > 0)
+	{
+		etai = 1.0f;	etao = mat->ior;
+	}
+	else
+	{
+		etao = 1.0f;	etai = mat->ior;
+	}
+
+	float eta = etai / etao;
+	m = -(etao * wi + etai * wo).normalized();
+
+	float r = 1 - eta * eta * (1 - pow(wo.dot(m), 2));
+
+	float Ptrans;
+	
+	if(r < 0.0f)
+	{
+		Ptrans = Pref;
+	}
+	else
+	{
+		Ptrans = DTerm(m, N, mat->alpha) * fabs(N.dot(m)) * etao * etao * fabs(wi.dot(m)) / pow(etao * wi.dot(m) + etai * wo.dot(m),2);
+	}	
+	
+	return pd * Pdiff + pr * Pref + pt * Ptrans;
 }
 
 float Realtime::DTerm(Vector3f m, Vector3f N, float alpha)
@@ -568,14 +652,14 @@ float Realtime::DTerm(Vector3f m, Vector3f N, float alpha)
 	float mDotN = m.dot(N);
 	int X = mDotN > 0 ? 1 : 0;
 	
-	float tanTm = sqrt(fabs(1.0f - mDotN * mDotN)) / mDotN;
+	float tanTm = sqrt(1.0f - mDotN * mDotN) / mDotN;
 
 	//GGX
 	//alpha = sqrt(2.0f / (alpha + 2.0f));
 	//return X * ((alpha * alpha) / (PI * pow(mDotN, 4) * pow(alpha * alpha + tanTm * tanTm, 2)));
 
 	// Phong
-	return ((alpha + 2) / (2 * PI)) * pow(mDotN, alpha);
+	return X * ((alpha + 2) / (2 * PI)) * pow(mDotN, alpha);
 }
 
 float Realtime::GTerm(Vector3f v, Vector3f m, Vector3f N, float alpha)
@@ -590,7 +674,7 @@ float Realtime::GTerm(Vector3f v, Vector3f m, Vector3f N, float alpha)
 		return 1.0f;
 	}
 	
-	float tanTv = sqrt(1.0f - vDotN * vDotN) / vDotN;
+	float tanTv = sqrt(1.0f - vDotN * vDotN) / fabs(vDotN);
 
 	if (tanTv == 0.0f)
 	{
@@ -802,7 +886,7 @@ void Realtime::DrawOutput()
 		//float ms = duration.count() * 1000.0f;
 		//printf("Execution Time: %f ms", ms);
 		if (pass == 1 || pass == 8 || pass == 64 || pass == 512 || pass == 2048 || pass == 4096)
-		{
+		{			
 			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			raytraceout.Use();
@@ -828,9 +912,16 @@ void Realtime::DrawOutput()
 			raytraceout.Unuse();
 			glutSwapBuffers();
 
+			Color* color_out = new Color[width * height];
+			for(int i = 0; i < width*height; ++i)
+			{
+				color_out[i] = imagePointer[i] / pass;
+				//color_out[i] = imagePointer[i];
+			}
 
-			WriteHdrImage("Raycast_" + std::to_string(pass) + "_reflection_phong.hdr", width, height, imagePointer);
+			WriteHdrImage("Raycast_" + std::to_string(pass) + "_transmission_p.hdr", width, height, color_out);
 			printf("Written to HDR file\n");
+			delete[] color_out;
 		}
 		
 		//printf("Pass %d\n",pass);
