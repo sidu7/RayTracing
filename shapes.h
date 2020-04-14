@@ -26,6 +26,7 @@ public:
 	float d0, d1;
 };
 
+#undef max
 class Obj;
 class Intersection
 {
@@ -60,6 +61,8 @@ public:
 
 typedef AlignedBox<float, 3> Bbox;
 
+const float Epsilon = 0.0001f;
+
 class Shape
 {
 public:
@@ -67,6 +70,7 @@ public:
 	
 	virtual bool Intersect(Ray ray, Intersection& data) = 0;
 	virtual Bbox Bounding_Box() const = 0;
+	virtual float Distance(const Vector3f& P) = 0;
 };
 
 class Sphere : public Shape
@@ -78,6 +82,7 @@ public:
 	Sphere(Vector3f center, float radius);
 	bool Intersect(Ray ray, Intersection& data) override;
 	Bbox Bounding_Box() const override;
+	float Distance(const Vector3f& P) override;
 };
 
 class Box : public Shape
@@ -91,6 +96,7 @@ public:
 	bool Intersect(Ray ray, Intersection& data) override;
 	bool IntersectBoundingBox(Ray ray, Intersection& data, Interval& interval);
 	Bbox Bounding_Box() const override;
+	float Distance(const Vector3f& P) override;
 };
 
 class Cylinder : public Shape
@@ -106,6 +112,7 @@ public:
 	Cylinder(Vector3f b, Vector3f a, float r);
 	bool Intersect(Ray ray, Intersection& data) override;
 	Bbox Bounding_Box() const override;
+	float Distance(const Vector3f& P) override;
 };
 
 
@@ -123,6 +130,7 @@ public:
 	Triangle(MeshData* meshdata,TriData);
 	bool Intersect(Ray ray, Intersection& data) override;
 	Bbox Bounding_Box() const override;
+	float Distance(const Vector3f& P) override;
 };
 
 

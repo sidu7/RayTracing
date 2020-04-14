@@ -3,6 +3,7 @@
 ////////////////////////////////////////////////////////////////////////
 
 #include <vector>
+#include <stack>
 
 #ifdef _WIN32
     // Includes for Windows
@@ -17,6 +18,7 @@
 #include "geom.h"
 #include "raytrace.h"
 #include "realtime.h"
+#include "RayMarch.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -157,6 +159,56 @@ void Scene::Command(const std::vector<std::string>& strings,
 		ReadHDRImage(strings[1], realtime->skyDome.image, realtime->skyDome.width, realtime->skyDome.height);
 		realtime->skyDome.radius = f[2];
 		realtime->skyDome.PreProcess();
+	}
+	else if (c == "csg")
+	{
+		if (realtime->readingCSG)
+		{
+			if (realtime->shapeStack.size() > 1)
+			{
+				fprintf(stderr, "\n*********************************************\n");
+				fprintf(stderr, "* Incorrect CSG commands *");
+				fprintf(stderr, "*********************************************\n\n");
+				__debugbreak();
+			}
+			else
+			{
+				realtime->shapes.push_back(realtime->shapeStack.top());
+				realtime->shapeStack.pop();
+			}
+		}
+		realtime->readingCSG = !realtime->readingCSG;
+	}
+	else if (c == "intersect")
+	{
+		Shape* a = realtime->shapeStack.top(); realtime->shapeStack.pop();
+		Shape* b = realtime->shapeStack.top(); realtime->shapeStack.pop();
+		Shape* s = new Intersect(a, b);
+		s->object = a->object;
+		realtime->shapeStack.push(s);
+	}
+	else if (c == "union")
+	{
+		Shape* a = realtime->shapeStack.top(); realtime->shapeStack.pop();
+		Shape* b = realtime->shapeStack.top(); realtime->shapeStack.pop();
+		Shape* s = new Union(a, b);
+		s->object = a->object;
+		realtime->shapeStack.push(s);
+	}
+	else if (c == "difference")
+	{
+		Shape* b = realtime->shapeStack.top(); realtime->shapeStack.pop();
+		Shape* a = realtime->shapeStack.top(); realtime->shapeStack.pop();
+		Shape* s = new Difference(a, b);
+		s->object = a->object;
+		realtime->shapeStack.push(s);
+	}
+	else if (c == "twist")
+	{
+		Shape* a = realtime->shapeStack.top(); realtime->shapeStack.pop();
+		Shape* s = new Twist(a, f[1],f[2]);
+		s->object = a->object;
+		realtime->shapeStack.push(s);
 	}
     else {
         fprintf(stderr, "\n*********************************************\n");

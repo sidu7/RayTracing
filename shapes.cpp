@@ -5,8 +5,6 @@
 
 using namespace Eigen;
 
-const float Epsilon = 0.0001;
-
 Interval::Interval() : t0(0.0f), t1(std::numeric_limits<float>::max())
 {
 }
@@ -138,6 +136,11 @@ Bbox Sphere::Bounding_Box() const
 	return Bbox(center - r, center + r);
 }
 
+float Sphere::Distance(const Vector3f& P)
+{
+	return (P - center).norm() - radius;
+}
+
 Box::Box(Vector3f c, Vector3f d) : corner(c), diagonal(d)
 {
 	slabs[0].N = Vector3f(1, 0, 0);
@@ -229,6 +232,14 @@ bool Box::IntersectBoundingBox(Ray ray, Intersection& data, Interval& interval)
 Bbox Box::Bounding_Box() const
 {
 	return Bbox(corner, corner + diagonal);
+}
+
+float Box::Distance(const Vector3f& P)
+{
+	Vector3f& min = corner;
+	Vector3f max = corner + diagonal;
+	return std::max(std::max(std::max(P.x() - max.x(),min.x() - P.x()),std::max(P.y() - max.y(),min.y() - P.y()))
+		,std::max(P.z() - max.z(),min.z() - P.z()));
 }
 
 Cylinder::Cylinder(Vector3f b, Vector3f a, float r) : base(b), axis(a), radius(r)
@@ -328,6 +339,11 @@ Bbox Cylinder::Bounding_Box() const
 	return Bbox(min, max);
 }
 
+float Cylinder::Distance(const Vector3f& P)
+{
+	return Vector2f(P.x(), P.y()).norm() - radius;
+}
+
 Triangle::Triangle(MeshData* meshdata, TriData tridata)
 {
 	V0 = meshdata->vertices[tridata.x()].pnt;
@@ -398,6 +414,11 @@ bool Triangle::Intersect(Ray ray, Intersection& data)
 Bbox Triangle::Bounding_Box() const
 {
 	return Bbox(min, max);
+}
+
+float Triangle::Distance(const Vector3f& P)
+{
+	return 0.0f;
 }
 
 float Minimizer::minimumOnObject(Shape* obj)

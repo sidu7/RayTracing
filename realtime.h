@@ -6,6 +6,7 @@
 #include <string>
 #include <fstream>
 #include <vector>
+#include <stack>
 
 #include <glbinding/gl/gl.h>
 #include <glbinding/Binding.h>
@@ -148,6 +149,10 @@ public:
 
 	// Image Based Lighting
 	SkyDome skyDome;
+
+	// CSG 
+	bool readingCSG;
+	std::stack<Shape*> shapeStack;
 
     Quaternionf ViewQuaternion() {
         Quaternionf q = angleAxis((tilt-90.0f)*Radians, Vector3f(1,0,0))

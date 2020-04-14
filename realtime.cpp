@@ -13,7 +13,7 @@
 #include "shapes.h"
 
 #define SKYDOME
-#define DOF
+//#define DOF
 
 // A good quality *thread-safe* Mersenne Twister random number generator.
 #include <random>
@@ -367,6 +367,9 @@ Realtime::Realtime()
 	glBindAttribLocation(raytraceout.program, 2, "vertexTexture");
 	glBindAttribLocation(raytraceout.program, 3, "vertexTangent");
 	raytraceout.LinkProgram();
+
+	// CSG Init
+	readingCSG = false;
 }
 
 // This function enters the event loop.
@@ -1157,7 +1160,10 @@ void Realtime::sphere(const Vector3f center, const float r, Material* mat)
 	Sphere* sphere = new Sphere(center, r);
 	sphere->object = obj;
 	obj->shape = sphere;
-	shapes.push_back(sphere);
+	if (readingCSG)
+		shapeStack.push(sphere);
+	else
+		shapes.push_back(sphere);
     if (mat->isLight())
         lights.push_back(obj);
 }
@@ -1170,7 +1176,10 @@ void Realtime::box(const Vector3f base, const Vector3f diag, Material* mat)
 	Box* box = new Box(base, diag);
 	box->object = obj;
 	obj->shape = box;
-	shapes.push_back(box);
+	if (readingCSG)
+		shapeStack.push(box);
+	else
+		shapes.push_back(box);
     if (mat->isLight())
         lights.push_back(obj);
 }
@@ -1199,7 +1208,10 @@ void Realtime::cylinder(const Vector3f base, const Vector3f axis, const float ra
 	Cylinder* cylinder = new Cylinder(base,axis,radius);
 	cylinder->object = obj;
 	obj->shape = cylinder;
-	shapes.push_back(cylinder);
+	if (readingCSG)
+		shapeStack.push(cylinder);
+	else
+		shapes.push_back(cylinder);
     if (mat->isLight())
         lights.push_back(obj);
 }
@@ -1212,7 +1224,10 @@ void Realtime::triangleMesh(MeshData* meshdata)
 	{
 		Triangle* triangle = new Triangle(meshdata, tridata);
 		triangle->object = obj;
-		shapes.push_back(triangle);
+		if (readingCSG)
+			shapeStack.push(triangle);
+		else
+			shapes.push_back(triangle);
 	}
 	if (meshdata->mat->isLight())
 		lights.push_back(obj);
