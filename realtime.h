@@ -53,6 +53,46 @@ public:
 ////////////////////////////////////////////////////////////////////////
 class Ray;
 class Intersection;
+struct SkyDome
+{
+	std::vector<float> image;
+	int width;
+	int height;
+	float radius;
+	float *pBuffer;
+	float* pUDist;
+	float angle;
+
+	void PreProcess()
+	{
+		angle = 0.0f;
+		printf("w:%d h:%d\n", width, height);
+		pBuffer = new float[width * (height + 1)];
+		pUDist = &pBuffer[width * height];
+		float* pSinTheta = new float[height];
+		float angleFrac = PI / float(height);
+		float theta = angleFrac * 0.5f;
+		for (unsigned int i = 0; i < height; i++, theta += angleFrac)
+			pSinTheta[i] = sin(theta);
+		for (unsigned int i = 0, m = 0; i < width; i++, m += height)
+		{
+			float* pVDist = &pBuffer[m];
+			unsigned int k = i * 3;
+			pVDist[0] = 0.2126f * image[k + 0] + 0.7152f * image[k + 1] + 0.0722f * image[k + 2];
+			pVDist[0] *= pSinTheta[0];
+			for (unsigned int j = 1, k = (width + i) * 3; j < height; j++, k += width * 3)
+			{
+				float lum = 0.2126 * image[k + 0] + 0.7152 * image[k + 1] + 0.0722 * image[k + 2];
+				pVDist[j] = pVDist[j - 1] + lum * pSinTheta[j];
+			}
+			if (i == 0)
+				pUDist[i] = pVDist[height - 1];
+			else
+				pUDist[i] = pUDist[i - 1] + pVDist[height - 1];
+		}
+	}
+};
+
 class Realtime
 {
 public:
@@ -88,8 +128,10 @@ public:
 
     int width, height;
     void setScreen(const int _width, const int _height) { width=_width;  height=_height; }
-    void setCamera(const Vector3f& _eye, const Quaternionf& _o, const float _ry)
-    { eye=_eye; orient=_o; ry=_ry; }
+    void setCamera(const Vector3f& _eye, const Quaternionf& _o, const float _ry, const float _fd = 0.0f,const float _cr = 0.0f)
+	{
+		eye = _eye; orient = _o; ry = _ry; focal_distance = _fd; confusion_radius = _cr;
+	}
     void setAmbient(const Vector3f& _a) { ambient = _a; }
     int setTexture(const int width, const int height, unsigned char* image);
     
@@ -99,6 +141,13 @@ public:
     std::vector<Obj*> lights;
 
 	KdBVH<float, 3, Shape*> Tree;
+
+	// Depth of field parameters
+	float focal_distance;
+	float confusion_radius;
+
+	// Image Based Lighting
+	SkyDome skyDome;
 
     Quaternionf ViewQuaternion() {
         Quaternionf q = angleAxis((tilt-90.0f)*Radians, Vector3f(1,0,0))

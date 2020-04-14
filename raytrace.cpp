@@ -20,6 +20,7 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#include "rgbe.h"
 
 //// A good quality *thread-safe* Mersenne Twister random number generator.
 //#include <random>
@@ -101,7 +102,7 @@ void Scene::Command(const std::vector<std::string>& strings,
     else if (c == "camera") {
         // syntax: camera x y z   ry   <orientation spec>
         // Eye position (x,y,z),  view orientation (qw qx qy qz),  frustum height ratio ry
-        realtime->setCamera(Vector3f(f[1],f[2],f[3]), Orientation(5,strings,f), f[4]); }
+        realtime->setCamera(Vector3f(f[1],f[2],f[3]), Orientation(5,strings,f), f[4], f[11],f[13]); }
 
     else if (c == "ambient") {
         // syntax: ambient r g b
@@ -151,12 +152,49 @@ void Scene::Command(const std::vector<std::string>& strings,
                           *toMat4(Orientation(6,strings,f));
         ReadAssimpFile(strings[1], modelTr);  }
 
-    
+	else if (c == "skydome")
+	{
+		ReadHDRImage(strings[1], realtime->skyDome.image, realtime->skyDome.width, realtime->skyDome.height);
+		realtime->skyDome.radius = f[2];
+		realtime->skyDome.PreProcess();
+	}
     else {
         fprintf(stderr, "\n*********************************************\n");
         fprintf(stderr, "* Unknown command: %s\n", c.c_str());
         fprintf(stderr, "*********************************************\n\n");
     }
+}
+
+void Scene::ReadHDRImage(const std::string inName, std::vector<float>& image,
+	int& width, int& height)
+{
+	rgbe_header_info info;
+	char errbuf[100] = { 0 };
+
+	// Open file and read width and height from the header
+	FILE* fp = fopen(inName.c_str(), "rb");
+	if (!fp) {
+		printf("Can't open file: %s\n", inName.c_str());
+		return;
+	}
+	int rc = RGBE_ReadHeader(fp, &width, &height, &info, errbuf);
+	if (rc != RGBE_RETURN_SUCCESS) {
+		printf("RGBE read error: %s\n", errbuf);
+		return;
+	}
+
+	// Allocate enough memory
+	image.resize(3 * width * height);
+
+	// Read the pixel data and close the file
+	rc = RGBE_ReadPixels_RLE(fp, &image[0], width, height, errbuf);
+	if (rc != RGBE_RETURN_SUCCESS) {
+		printf("RGBE read error: %s\n", errbuf);
+		return;
+	}
+	fclose(fp);
+
+	printf("Read %s (%dX%d)\n", inName.c_str(), width, height);
 }
 
 void Scene::TraceImage(Color* image, const int pass)

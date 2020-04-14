@@ -12,6 +12,8 @@
 #include "realtime.h"
 #include "shapes.h"
 
+#define SKYDOME
+#define DOF
 
 // A good quality *thread-safe* Mersenne Twister random number generator.
 #include <random>
@@ -381,7 +383,7 @@ void Realtime::run(Color* image, int pass)
 	
 	Tree.init(shapes.begin(), shapes.end());
 	
-	max_passes = 4096;
+	max_passes = 64;
 
     cDist = eye.norm();
 	imagePointer = image;
@@ -430,8 +432,8 @@ Vector3f Realtime::TraceRay(Ray& ray)
 		Intersection I;
 		Minimizer mini3(new_ray3, &I);
 		BVMinimize(Tree, mini3);
-		
-		if(p_some > 0.0f && I.object != nullptr && I.object == L.object)
+
+		if (p_some > 0.0f && I.object != nullptr && I.object == L.object)
 		{
 			Vector3f ff = EvalScattering(wo, N, wiL, P.object->material,P.t);
 			C += W.cwiseProduct((ff * w_mis / p_some).cwiseProduct(EvalRadiance(L)));
@@ -477,9 +479,26 @@ Vector3f Realtime::TraceRay(Ray& ray)
 
 Intersection Realtime::SampleLight()
 {
-	Obj* light = *select_randomly(lights.begin(),lights.end());
+#ifdef SKYDOME
+	Intersection B;
+	double u = myrandom(RNGen);
+	double v = myrandom(RNGen);
+	float maxUVal = skyDome.pUDist[skyDome.width - 1];
+	float* pUPos = std::lower_bound(skyDome.pUDist, skyDome.pUDist + skyDome.width, u * maxUVal);
+	int iu = pUPos - skyDome.pUDist;
+	float* pVDist = &skyDome.pBuffer[skyDome.height * iu];
+	float* pVPos = std::lower_bound(pVDist, pVDist + skyDome.height, v * pVDist[skyDome.height - 1]);
+	int iv = pVPos - pVDist;
+	double phi = skyDome.angle - 2 * PI * iu / skyDome.width;
+	double theta = PI * iv / skyDome.height;
+	B.N = Vector3f(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+	B.P = B.N * skyDome.radius;
+	return B;	
+#else
+	Obj* light = *select_randomly(lights.begin(), lights.end());
 	Sphere* sphere = static_cast<Sphere*>(light->shape);
 	return SampleSphere(sphere->center, sphere->radius, light);
+#endif
 }
 
 Intersection Realtime::SampleSphere(Vector3f center, float radius, Obj* light)
@@ -498,8 +517,28 @@ Intersection Realtime::SampleSphere(Vector3f center, float radius, Obj* light)
 
 float Realtime::PdfLight(Intersection& L)
 {
+#ifdef SKYDOME
+	Vector3f P = L.P.normalized();
+	double fu = (skyDome.angle - atan2(P[1], P[0])) / (PI * 2.0f);
+	fu = fu - floor(fu);
+	// Wrap to be within 0...1
+	int u = floor(skyDome.width*fu);
+	int v = floor(skyDome.height*acos(P[2])/PI);
+	float angleFrac = PI/float(skyDome.height);
+	float* pVDist = &skyDome.pBuffer[skyDome.height*u];
+	float pdfU = (u == 0)? (skyDome.pUDist[0]) : (skyDome.pUDist[u]-skyDome.pUDist[u-1]);
+	pdfU /= skyDome.pUDist[skyDome.width-1];
+	pdfU *= skyDome.width / (PI * 2.0f);
+	float pdfV = (v == 0)?(pVDist[0]):(pVDist[v]-pVDist[v-1]);
+	pdfV /= pVDist[skyDome.height-1];
+	pdfV *= skyDome.height/PI;
+	float theta = angleFrac*0.5 + angleFrac*v;
+	float pdf = pdfU*pdfV*sin(theta)/(4.0*PI*skyDome.radius*skyDome.radius);
+	return pdf;
+#else
 	Sphere* s = static_cast<Sphere*>(L.object->shape);
 	return 1.0f / (4 * PI * s->radius * s->radius * lights.size());
+#endif
 }
 
 float Realtime::GeometryFactor(Intersection& P, Intersection& L)
@@ -706,7 +745,33 @@ Vector3f Realtime::FTerm(float LdotH, Material* mat)
 
 Vector3f Realtime::EvalRadiance(Intersection& Q)
 {
+#ifdef SKYDOME
+	Vector3f P = Q.P.normalized();
+	double u = (skyDome.angle - atan2(P[1], P[0])) / (PI * 2.0f);
+	u = u - floor(u);
+	// Wrap to be within 0...1
+	double v = acos(P[2])/PI;
+	int i0 = floor(u* skyDome.width);
+	int j0 = floor(v* skyDome.height);
+	double uw[2], vw[2];
+	uw[1] = u* skyDome.width -i0;  uw[0] = 1.0-uw[1];
+	vw[1] = v* skyDome.height-j0;  vw[0] = 1.0-vw[1];
+	Vector3f r(0.0f, 0.0f, 0.0f);
+	for (int i=0; i<2;  i++)
+	{
+		for (int j=0; j<2;  j++)
+		{
+			int k = 3*( ((j0+j)% skyDome.height)* skyDome.width + ((i0+i)% skyDome.width) );
+			for (int c=0;  c<3;  c++)
+			{
+				r[c] += uw[i]*vw[j]*skyDome.image[k+c];
+			}
+		}
+	}
+	return r;
+#else
 	return Q.object->material->Kd;
+#endif
 }
 
 // Called when the scene needs to be redrawn.
@@ -836,7 +901,8 @@ void Realtime::DrawOutput()
 {
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	
+
+	printf("fd = %f, cr = %f", focal_distance, confusion_radius);
 	Vector3f E = eye;
 	float rx = ry * width / height;
 	Quaternionf o = ViewQuaternion();
@@ -864,8 +930,17 @@ void Realtime::DrawOutput()
 					color = Color(0.0, 1.0, 0.0);
 				else
 					color = Color(1.0, 1.0, 1.0);*/
+#ifdef DOF
+				float r = confusion_radius * sqrt(myrandom(RNGen));
+				float theta = 2 * PI * r * myrandom(RNGen);
+				float drx = r * cos(theta);
+				float dry = r * sin(theta);
+				Vector3f dir = (focal_distance * dx - drx) * X + (focal_distance * dy - dry) * Y + focal_distance * Z;
+				Ray ray(E + drx * X + dry * Y, dir.normalized());
+#else
 				Vector3f dir = dx * X + dy * Y + Z;
 				Ray ray(E, dir.normalized());
+#endif
 				
 				Vector3f test = imagePointer[y * width + x];
 				test += TraceRay(ray);
@@ -885,7 +960,7 @@ void Realtime::DrawOutput()
 		//
 		//float ms = duration.count() * 1000.0f;
 		//printf("Execution Time: %f ms", ms);
-		if (pass == 1 || pass == 8 || pass == 64 || pass == 512 || pass == 2048 || pass == 4096)
+		if (pass == 1 || pass == 8 || pass == 64 || pass == 256 || pass == 512 || pass == 2048 || pass == 4096)
 		{			
 			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -919,7 +994,7 @@ void Realtime::DrawOutput()
 				//color_out[i] = imagePointer[i];
 			}
 
-			WriteHdrImage("Raycast_" + std::to_string(pass) + "_transmission_p.hdr", width, height, color_out);
+			WriteHdrImage("Raycast_" + std::to_string(pass) + "_ibl.hdr", width, height, color_out);
 			printf("Written to HDR file\n");
 			delete[] color_out;
 		}

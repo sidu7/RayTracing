@@ -96,4 +96,8 @@ public:
     // The main program will call the TraceImage method to generate
     // and return the image.  This is the Ray Tracer!
     void TraceImage(Color* image, const int pass);
+
+	// Read HDR Image
+	void ReadHDRImage(const std::string inName, std::vector<float>& image,
+		int& width, int& height);
 };
