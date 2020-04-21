@@ -341,7 +341,19 @@ Bbox Cylinder::Bounding_Box() const
 
 float Cylinder::Distance(const Vector3f& P)
 {
-	return Vector2f(P.x(), P.y()).norm() - radius;
+	Quaternionf q = Quaternionf::FromTwoVectors(axis, Vector3f::UnitZ());
+	Vector3f new_pos = q._transformVector(P - base);
+
+	Vector3f no_z_pos(new_pos.x(), new_pos.y(), 0.f);
+
+	Vector3f z_plus_n(0.f, 0.f, 1.f);
+	Vector3f z_minus_n(0.f, 0.f, -1.f);
+
+	float z_plus = z_plus_n.dot(new_pos) - axis.norm();
+	float  z_minus = z_minus_n.dot(new_pos);
+	float normal_sdf = no_z_pos.norm() - radius;
+
+	return std::max(std::max(normal_sdf, z_plus), z_minus);
 }
 
 Triangle::Triangle(MeshData* meshdata, TriData tridata)

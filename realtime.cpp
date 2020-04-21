@@ -925,14 +925,6 @@ void Realtime::DrawOutput()
 
 				float dx = 2 * (x + myrandom(RNGen)) / width - 1;
 				float dy = 2 * (y + myrandom(RNGen)) / height - 1;
-
-				/*Color color;
-				if ((x - width / 2) * (x - width / 2) + (y - height / 2) * (y - height / 2) < 100 * 100)
-					color = Color(myrandom(RNGen), myrandom(RNGen), myrandom(RNGen));
-				else if (abs(x - width / 2) < 4 || abs(y - height / 2) < 4)
-					color = Color(0.0, 1.0, 0.0);
-				else
-					color = Color(1.0, 1.0, 1.0);*/
 #ifdef DOF
 				float r = confusion_radius * sqrt(myrandom(RNGen));
 				float theta = 2 * PI * r * myrandom(RNGen);
